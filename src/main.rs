@@ -1,3 +1,5 @@
+use coset::puzzles::three_by_one;
+
 fn main() {
-    println!("Hello, world!");
+    println!("{:?}", three_by_one().orbits);
 }
