@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 clap = "4.6.5"
 disjoint = "0.8.0"
+grid = { version = "1.0.1", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
