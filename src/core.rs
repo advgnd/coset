@@ -35,7 +35,7 @@ pub struct Orbit {
 pub struct Puzzle {
     pub moves: Vec<Move>,
     pub property_maxes: PropertyMaxes,
-    pub states_map: Vec<String>,
+    pub states_map: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +48,5 @@ pub struct CompiledMove {
 pub struct CompiledPuzzle {
     pub moves: Vec<CompiledMove>,
     pub orbits: Vec<Orbit>,
-    pub property_maxes: PropertyMaxes,
-    pub states_map: Vec<String>,
+    pub property_max_map: Vec<PropertyMaxes>,
 }

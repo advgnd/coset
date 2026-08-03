@@ -44,20 +44,27 @@ fn encode_compiled_state(
     state
 }
 
+fn filter_property_maxes(
+    property_maxes: &PropertyMaxes,
+    piece_properties: &[String],
+) -> PropertyMaxes {
+    property_maxes
+        .iter()
+        .filter(|(property, _)| piece_properties.contains(property))
+        .map(|(key, value)| (key.clone(), *value)) // Dereference because filter is referencing for whatever reason
+        .collect::<BTreeMap<_, _>>()
+}
+
 fn compile_move(
     move_: Move,
     property_maxes: &PropertyMaxes,
-    states_map: &[String],
+    states_map: &[Vec<String>],
 ) -> CompiledMove {
     let mut transform = vec![];
 
     for piece_properties in states_map {
         let mut row = vec![];
-        let piece_property_maxes = property_maxes
-            .iter()
-            .filter(|(property, _)| piece_properties.contains(*property))
-            .map(|(key, value)| (key.clone(), *value)) // Dereference because filter is referencing for whatever reason
-            .collect::<BTreeMap<_, _>>();
+        let piece_property_maxes = filter_property_maxes(property_maxes, piece_properties);
 
         for piece_id in 0..piece_property_maxes.values().product() {
             let piece_state = decode_compiled_state(piece_id as i32, &piece_property_maxes);
@@ -136,8 +143,13 @@ impl From<Puzzle> for CompiledPuzzle {
         CompiledPuzzle {
             moves: compiled_moves,
             orbits,
-            property_maxes: puzzle.property_maxes,
-            states_map: puzzle.states_map,
+            property_max_map: puzzle
+                .states_map
+                .into_iter()
+                .map(|piece_properties| {
+                    filter_property_maxes(&puzzle.property_maxes, &piece_properties)
+                })
+                .collect(),
         }
     }
 }
