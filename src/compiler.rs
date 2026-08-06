@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::{
-    CompiledMove, CompiledPieceState, CompiledPuzzle, Move, Orbit, PieceState, PropertyMaxes,
-    Puzzle, TransformIndex,
+    CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, MoveDefinition,
+    OrbitDefinition, PieceState, PropertyMaxes, PuzzleDefinition, TransformIndex,
 };
 
 fn compute_compiled_totals(property_maxes: &PropertyMaxes) -> BTreeMap<String, i32> {
@@ -56,10 +56,10 @@ fn filter_property_maxes(
 }
 
 fn compile_move(
-    move_: Move,
+    move_: MoveDefinition,
     property_maxes: &PropertyMaxes,
     states_map: &[Vec<String>],
-) -> CompiledMove {
+) -> CompiledMoveDefinition {
     let mut transform = vec![];
 
     for piece_properties in states_map {
@@ -92,14 +92,17 @@ fn compile_move(
         transform.push(row);
     }
 
-    CompiledMove {
+    CompiledMoveDefinition {
         name: move_.name,
         transform,
     }
 }
 
-fn find_orbits(state_len: usize, moves: &[CompiledMove]) -> Vec<Orbit> {
-    let mut piece_state_map: HashMap<BTreeSet<i32>, Vec<i32>> = HashMap::new();
+fn find_orbits(
+    state_len: usize,
+    moves: &[CompiledMoveDefinition],
+) -> BTreeMap<BTreeSet<i32>, BTreeSet<i32>> {
+    let mut orbit_map: BTreeMap<BTreeSet<i32>, BTreeSet<i32>> = BTreeMap::new();
 
     for piece_id in 0..state_len {
         let mut new_states: BTreeSet<i32> = BTreeSet::from_iter(vec![0]);
@@ -116,33 +119,64 @@ fn find_orbits(state_len: usize, moves: &[CompiledMove]) -> Vec<Orbit> {
             }
         }
 
-        piece_state_map
+        orbit_map
             .entry(visited)
             .or_default()
-            .push(piece_id as i32);
+            .insert(piece_id as i32);
     }
 
-    piece_state_map
-        .into_iter()
-        .map(|(visited, pieces)| Orbit {
-            pieces,
-            max_composite_state: visited.into_iter().max().unwrap_or(0),
-        })
-        .collect()
+    orbit_map
 }
 
-impl From<Puzzle> for CompiledPuzzle {
-    fn from(puzzle: Puzzle) -> Self {
-        let compiled_moves: Vec<CompiledMove> = puzzle
+impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
+    fn from(puzzle: PuzzleDefinition) -> Self {
+        let compiled_moves: Vec<CompiledMoveDefinition> = puzzle
             .moves
             .into_iter()
             .map(|move_| compile_move(move_, &puzzle.property_maxes, &puzzle.states_map))
             .collect();
         let orbits = find_orbits(puzzle.states_map.len(), &compiled_moves);
+        let orbit_piece_map: Vec<i32> = orbits.values().flatten().copied().collect();
 
-        CompiledPuzzle {
+        let compiled_moves = compiled_moves
+            .into_iter()
+            .map(|move_| CompiledMoveDefinition {
+                name: move_.name,
+                transform: move_
+                    .transform
+                    .iter()
+                    .map(|piece_map| {
+                        orbit_piece_map
+                            .iter()
+                            .filter_map(|&piece_id| piece_map.get(piece_id as usize))
+                            .copied()
+                            .collect()
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        let mut beginning_index = 0;
+        let mut orbit_definitions: Vec<OrbitDefinition> = Vec::with_capacity(orbits.len());
+
+        for (orbit, pieces) in orbits.into_iter() {
+            let ending_index = beginning_index + pieces.len();
+
+            orbit_definitions.push(OrbitDefinition {
+                slice: [beginning_index as i32, ending_index as i32],
+                max_composite_state: orbit
+                    .into_iter()
+                    .max()
+                    .expect("Orbit states can never be empty"),
+            });
+
+            beginning_index = ending_index;
+        }
+
+        CompiledPuzzleDefinition {
             moves: compiled_moves,
-            orbits,
+            orbits: orbit_definitions,
+            orbit_piece_map,
             property_max_map: puzzle
                 .states_map
                 .into_iter()

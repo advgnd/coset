@@ -14,39 +14,40 @@ pub enum TransformIndex {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PropertyTransform {
+pub struct PropertyTransformDefinition {
     pub index: TransformIndex,
     pub value_map: Grid<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Move {
+pub struct MoveDefinition {
     pub name: String,
-    pub transforms: BTreeMap<String, PropertyTransform>,
+    pub transforms: BTreeMap<String, PropertyTransformDefinition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Orbit {
-    pub pieces: Vec<i32>,
+pub struct OrbitDefinition {
+    pub slice: [i32; 2],
     pub max_composite_state: CompiledPieceState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Puzzle {
-    pub moves: Vec<Move>,
+pub struct PuzzleDefinition {
+    pub moves: Vec<MoveDefinition>,
     pub property_maxes: PropertyMaxes,
     pub states_map: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompiledMove {
+pub struct CompiledMoveDefinition {
     pub name: String,
     pub transform: Vec<Vec<i32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompiledPuzzle {
-    pub moves: Vec<CompiledMove>,
-    pub orbits: Vec<Orbit>,
+pub struct CompiledPuzzleDefinition {
+    pub moves: Vec<CompiledMoveDefinition>,
+    pub orbits: Vec<OrbitDefinition>,
+    pub orbit_piece_map: Vec<i32>,
     pub property_max_map: Vec<PropertyMaxes>,
 }
