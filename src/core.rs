@@ -28,7 +28,8 @@ pub struct MoveDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbitDefinition {
     pub slice: [i32; 2],
-    pub max_composite_state: CompiledPieceState,
+    pub pieces: Vec<i32>,
+    pub states: Vec<CompiledPieceState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +49,6 @@ pub struct CompiledMoveDefinition {
 pub struct CompiledPuzzleDefinition {
     pub moves: Vec<CompiledMoveDefinition>,
     pub orbits: Vec<OrbitDefinition>,
-    pub orbit_piece_map: Vec<i32>,
+    pub piece_index_map: Vec<i32>,
     pub property_max_map: Vec<PropertyMaxes>,
 }

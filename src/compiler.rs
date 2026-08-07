@@ -136,7 +136,7 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
             .map(|move_| compile_move(move_, &puzzle.property_maxes, &puzzle.states_map))
             .collect();
         let orbits = find_orbits(puzzle.states_map.len(), &compiled_moves);
-        let orbit_piece_map: Vec<i32> = orbits.values().flatten().copied().collect();
+        let index_piece_map: Vec<i32> = orbits.values().flatten().copied().collect();
 
         let compiled_moves = compiled_moves
             .into_iter()
@@ -145,10 +145,10 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
                 transform: move_
                     .transform
                     .iter()
-                    .map(|piece_map| {
-                        orbit_piece_map
+                    .map(|transformation| {
+                        index_piece_map
                             .iter()
-                            .filter_map(|&piece_id| piece_map.get(piece_id as usize))
+                            .map(|&piece_id| &transformation[piece_id as usize])
                             .copied()
                             .collect()
                     })
@@ -164,10 +164,8 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
 
             orbit_definitions.push(OrbitDefinition {
                 slice: [beginning_index as i32, ending_index as i32],
-                max_composite_state: orbit
-                    .into_iter()
-                    .max()
-                    .expect("Orbit states can never be empty"),
+                pieces: pieces.into_iter().collect(),
+                states: orbit.into_iter().collect(),
             });
 
             beginning_index = ending_index;
@@ -176,7 +174,7 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
         CompiledPuzzleDefinition {
             moves: compiled_moves,
             orbits: orbit_definitions,
-            orbit_piece_map,
+            piece_index_map: index_piece_map,
             property_max_map: puzzle
                 .states_map
                 .into_iter()
