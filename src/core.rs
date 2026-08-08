@@ -1,11 +1,60 @@
-use std::{collections::BTreeMap, ops::Range};
+use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
+    ops::{Deref, DerefMut, Range},
+};
 
 use grid::Grid;
 use serde::{Deserialize, Serialize};
 
-pub type PropertyMaxes = BTreeMap<String, i32>; // i32 represents the max value of the property
-pub type PieceState = BTreeMap<String, i32>; // i32 represents the current value of the property
-pub type CompiledPieceState = i32; // compound state derived from the traditional piece state
+type InnerPieceState = BTreeMap<String, i32>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct PieceState(InnerPieceState);
+
+impl Deref for PieceState {
+    type Target = InnerPieceState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PieceState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl PartialOrd for PieceState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PieceState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let result = self.values().sum::<i32>().cmp(&other.values().sum::<i32>());
+
+        if result == Ordering::Equal {
+            self.0.cmp(&other.0)
+        } else {
+            result
+        }
+    }
+}
+
+impl<T> FromIterator<T> for PieceState
+where
+    InnerPieceState: FromIterator<T>,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(value: I) -> Self {
+        PieceState(value.into_iter().collect())
+    }
+}
+
+pub type CompiledPieceState = i32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransformIndex {
@@ -15,7 +64,7 @@ pub enum TransformIndex {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PropertyTransformDefinition {
-    pub index: TransformIndex,
+    pub index_type: TransformIndex,
     pub value_map: Grid<i32>,
 }
 
@@ -29,13 +78,12 @@ pub struct MoveDefinition {
 pub struct OrbitDefinition {
     pub slice: Range<i32>,
     pub pieces: Vec<i32>,
-    pub states: Vec<CompiledPieceState>,
+    pub states: Vec<PieceState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PuzzleDefinition {
     pub moves: Vec<MoveDefinition>,
-    pub property_maxes: PropertyMaxes,
     pub states_map: Vec<Vec<String>>,
 }
 
@@ -49,6 +97,6 @@ pub struct CompiledMoveDefinition {
 pub struct CompiledPuzzleDefinition {
     pub moves: Vec<CompiledMoveDefinition>,
     pub orbits: Vec<OrbitDefinition>,
+    pub orbit_map: Vec<i32>,
     pub piece_index_map: Vec<i32>,
-    pub property_max_map: Vec<PropertyMaxes>,
 }
