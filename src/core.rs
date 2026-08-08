@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Range};
 
 use grid::Grid;
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ pub struct MoveDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbitDefinition {
-    pub slice: [i32; 2],
+    pub slice: Range<i32>,
     pub pieces: Vec<i32>,
     pub states: Vec<CompiledPieceState>,
 }

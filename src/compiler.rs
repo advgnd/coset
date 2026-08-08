@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::{
     CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, MoveDefinition,
@@ -62,12 +62,13 @@ fn compile_move(
 ) -> CompiledMoveDefinition {
     let mut transform = vec![];
 
-    for piece_properties in states_map {
+    for (piece_id, piece_properties) in states_map.iter().enumerate() {
         let mut row = vec![];
         let piece_property_maxes = filter_property_maxes(property_maxes, piece_properties);
 
-        for piece_id in 0..piece_property_maxes.values().product() {
-            let piece_state = decode_compiled_state(piece_id as i32, &piece_property_maxes);
+        for compiled_piece_state in 0..piece_property_maxes.values().product() {
+            let piece_state =
+                decode_compiled_state(compiled_piece_state as i32, &piece_property_maxes);
             let piece_state = piece_state
                 .iter()
                 .map(|(property, value)| {
@@ -142,16 +143,10 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
             .into_iter()
             .map(|move_| CompiledMoveDefinition {
                 name: move_.name,
-                transform: move_
-                    .transform
+                transform: index_piece_map
                     .iter()
-                    .map(|transformation| {
-                        index_piece_map
-                            .iter()
-                            .map(|&piece_id| &transformation[piece_id as usize])
-                            .copied()
-                            .collect()
-                    })
+                    .map(|&piece_id| &move_.transform[piece_id as usize])
+                    .cloned()
                     .collect(),
             })
             .collect();
@@ -163,7 +158,7 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
             let ending_index = beginning_index + pieces.len();
 
             orbit_definitions.push(OrbitDefinition {
-                slice: [beginning_index as i32, ending_index as i32],
+                slice: (beginning_index as i32)..(ending_index as i32),
                 pieces: pieces.into_iter().collect(),
                 states: orbit.into_iter().collect(),
             });
@@ -171,10 +166,15 @@ impl From<PuzzleDefinition> for CompiledPuzzleDefinition {
             beginning_index = ending_index;
         }
 
+        let mut piece_index_map = vec![0; index_piece_map.len()];
+        for (piece_id, &orbit_index) in index_piece_map.iter().enumerate() {
+            piece_index_map[orbit_index as usize] = piece_id as i32;
+        }
+
         CompiledPuzzleDefinition {
             moves: compiled_moves,
             orbits: orbit_definitions,
-            piece_index_map: index_piece_map,
+            piece_index_map,
             property_max_map: puzzle
                 .states_map
                 .into_iter()
