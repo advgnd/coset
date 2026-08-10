@@ -119,11 +119,12 @@ fn compile_move(
 
 fn find_orbits(
     state_map: &[Vec<String>],
+    state_len: usize,
     moves: &[MoveDefinition],
 ) -> Result<Vec<OrbitDefinition>> {
     let mut orbit_map: BTreeMap<BTreeSet<PieceState>, BTreeSet<i32>> = BTreeMap::new();
 
-    for piece_id in 0..state_map.len() {
+    for piece_id in 0..state_len {
         let mut initial_piece_state = PieceState::default();
 
         for property in state_map[piece_id].iter() {
@@ -179,10 +180,10 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
     type Error = CompilerError;
 
     fn try_from(puzzle: PuzzleDefinition) -> Result<Self> {
-        let orbits = find_orbits(&puzzle.states_map, &puzzle.moves)?;
+        let orbits = find_orbits(&puzzle.states_map, puzzle.state_len, &puzzle.moves)?;
         let mut orbit_map = vec![];
 
-        for piece_id in 0..puzzle.states_map.len() {
+        for piece_id in 0..puzzle.state_len {
             orbit_map.push(
                 orbits
                     .iter()
@@ -213,6 +214,7 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
             orbits,
             orbit_map,
             piece_index_map,
+            state_len: puzzle.state_len,
         })
     }
 }

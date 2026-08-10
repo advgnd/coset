@@ -2,26 +2,34 @@ use std::collections::BTreeMap;
 
 use burn::{
     Tensor,
-    tensor::{TensorData, backend::Backend},
+    tensor::{Int, TensorData, backend::Backend},
 };
 
-use crate::core::{CompiledPuzzleDefinition, PuzzleDefinition};
+use crate::{core::CompiledPuzzleDefinition, sim::SimError::MoveNotFound};
 
-struct Puzzle<B: Backend> {
-    state: Tensor<B, 1>,
-    moves: Tensor<B, 2>,
-    move_map: BTreeMap<String, i32>,
-    piece_index_map: Vec<i32>,
+#[derive(thiserror::Error, Debug)]
+pub enum SimError {
+    #[error("move not found: {0}")]
+    MoveNotFound(String),
 }
 
-impl<B: Backend> Puzzle<B> {
-    fn new(device: B::Device, puzzle_definition: CompiledPuzzleDefinition) -> Self {
-        let state = Tensor::zeros([puzzle_definition.piece_index_map.len()], &device);
+type Result<T> = std::result::Result<T, SimError>;
 
-        let num_moves = puzzle_definition.moves.len();
+#[derive(Clone)]
+pub struct LoadedPuzzleDefinition<B: Backend> {
+    device: B::Device,
+    moves: Tensor<B, 3, Int>,
+    move_map: BTreeMap<String, i32>,
+    piece_index_map: Vec<i32>,
+    state_len: usize,
+}
+
+impl<B: Backend> LoadedPuzzleDefinition<B> {
+    pub fn load(puzzle_def: CompiledPuzzleDefinition, device: B::Device) -> Self {
+        let num_moves = puzzle_def.moves.len();
         let mut nested_transforms = vec![];
         let mut move_map = BTreeMap::new();
-        let max_state_map_len = puzzle_definition
+        let max_state_map_len = puzzle_def
             .moves
             .iter()
             .map(|move_| {
@@ -35,7 +43,7 @@ impl<B: Backend> Puzzle<B> {
             .max() // This max is technically unnecessary because all elements of the list should have the same value but wtvr
             .unwrap_or(0);
 
-        for (i, move_) in puzzle_definition.moves.into_iter().enumerate() {
+        for (i, move_) in puzzle_def.moves.into_iter().enumerate() {
             let padded_transform = move_
                 .transform
                 .iter()
@@ -52,20 +60,53 @@ impl<B: Backend> Puzzle<B> {
 
         let moves_tensordata = TensorData::new(
             nested_transforms.into_iter().flatten().flatten().collect(),
-            [
-                num_moves,
-                puzzle_definition.piece_index_map.len(),
-                max_state_map_len,
-            ],
+            [num_moves, puzzle_def.state_len, max_state_map_len],
         );
 
         let moves = Tensor::from_data(moves_tensordata, &device);
 
         Self {
-            state,
+            device,
             moves,
             move_map,
-            piece_index_map: puzzle_definition.piece_index_map,
+            piece_index_map: puzzle_def.piece_index_map,
+            state_len: puzzle_def.state_len,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct Puzzle<'a, B: Backend> {
+    state: Tensor<B, 1, Int>,
+    loaded_puzzle: &'a LoadedPuzzleDefinition<B>,
+}
+
+impl<'a, B: Backend> Puzzle<'a, B> {
+    pub fn new(loaded_puzzle: &'a LoadedPuzzleDefinition<B>, device: B::Device) -> Self {
+        let state = Tensor::zeros([loaded_puzzle.state_len], &device);
+
+        Self {
+            state,
+            loaded_puzzle,
+        }
+    }
+
+    pub fn apply_move(&self, move_name: &str) -> Result<Self> {
+        let move_index = self
+            .loaded_puzzle
+            .move_map
+            .get(move_name)
+            .ok_or_else(|| MoveNotFound(move_name.to_string()))?;
+        let move_index = Tensor::from_data([*move_index], &self.loaded_puzzle.device);
+
+        let move_ = self.loaded_puzzle.moves.clone().select(0, move_index);
+        let shaped_state = self.state.clone().unsqueeze_dim(1);
+
+        let new_state = move_.gather(1, shaped_state).squeeze();
+
+        Ok(Self {
+            state: new_state,
+            ..self.clone()
+        })
     }
 }
