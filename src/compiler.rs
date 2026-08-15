@@ -32,7 +32,7 @@ fn transform_state(
     piece_state: PieceState,
     move_: &MoveDefinition,
 ) -> Result<PieceState> {
-    let new_state = piece_state
+    piece_state
         .iter()
         .map(|(property, value)| {
             let property_transform;
@@ -60,9 +60,7 @@ fn transform_state(
                 property_transform.value_map[(index, *value as usize)],
             ))
         })
-        .collect();
-
-    new_state
+        .collect()
 }
 
 pub fn decode_compiled_state(
@@ -72,7 +70,9 @@ pub fn decode_compiled_state(
     orbit
         .states
         .get(compiled_piece_state as usize)
-        .ok_or_else(|| CompilerError::InvalidCompiledPieceState(compiled_piece_state))
+        .ok_or(CompilerError::InvalidCompiledPieceState(
+            compiled_piece_state,
+        ))
         .cloned()
 }
 
@@ -118,16 +118,15 @@ fn compile_move(
 }
 
 fn find_orbits(
-    state_map: &[Vec<String>],
-    state_len: usize,
+    states_map: &[Vec<String>],
     moves: &[MoveDefinition],
 ) -> Result<Vec<OrbitDefinition>> {
     let mut orbit_map: BTreeMap<BTreeSet<PieceState>, BTreeSet<i32>> = BTreeMap::new();
 
-    for piece_id in 0..state_len {
+    for (piece_id, states) in states_map.iter().enumerate() {
         let mut initial_piece_state = PieceState::default();
 
-        for property in state_map[piece_id].iter() {
+        for property in states.iter() {
             initial_piece_state.insert(property.clone(), 0);
         }
 
@@ -180,7 +179,7 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
     type Error = CompilerError;
 
     fn try_from(puzzle: PuzzleDefinition) -> Result<Self> {
-        let orbits = find_orbits(&puzzle.states_map, puzzle.state_len, &puzzle.moves)?;
+        let orbits = find_orbits(&puzzle.states_map, &puzzle.moves)?;
         let mut orbit_map = vec![];
 
         for piece_id in 0..puzzle.state_len {
@@ -194,8 +193,7 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
 
         let index_piece_map: Vec<i32> = orbits
             .iter()
-            .map(|orbit| orbit.pieces.iter().copied())
-            .flatten()
+            .flat_map(|orbit| orbit.pieces.iter().copied())
             .collect();
         let mut piece_index_map = vec![0; index_piece_map.len()];
 

@@ -235,7 +235,7 @@ impl<'a, B: Backend> PuzzleState<'a, B> {
             .select(0, loaded_puzzle.piece_index_map.clone())
             .to_data()
             .to_vec()
-            .map_err(|e| SimError::DataError(e))?;
+            .map_err(SimError::DataError)?;
 
         Ok(raw_data
             .into_iter()
