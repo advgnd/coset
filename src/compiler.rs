@@ -65,7 +65,7 @@ fn transform_state(
     new_state
 }
 
-fn decode_compiled_state(
+pub fn decode_compiled_state(
     compiled_piece_state: CompiledPieceState,
     orbit: &OrbitDefinition,
 ) -> Result<PieceState> {
@@ -76,7 +76,7 @@ fn decode_compiled_state(
         .cloned()
 }
 
-fn encode_compiled_state(
+pub fn encode_compiled_state(
     piece_state: &PieceState,
     orbit: &OrbitDefinition,
 ) -> Result<CompiledPieceState> {

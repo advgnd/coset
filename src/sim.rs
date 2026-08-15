@@ -2,15 +2,21 @@ use std::collections::BTreeMap;
 
 use burn::{
     Tensor,
-    tensor::{Int, TensorData, backend::Backend},
+    tensor::{DataError, Int, TensorData, backend::Backend},
 };
 
-use crate::{core::CompiledPuzzleDefinition, sim::SimError::MoveNotFound};
+use crate::{
+    compiler::decode_compiled_state,
+    core::{CompiledPuzzleDefinition, OrbitDefinition, PieceState},
+    sim::SimError::MoveNotFound,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SimError {
     #[error("move not found: {0}")]
     MoveNotFound(String),
+    #[error("tensor data error: {0}")]
+    DataError(DataError),
 }
 
 type Result<T> = std::result::Result<T, SimError>;
@@ -20,7 +26,9 @@ pub struct LoadedPuzzleDefinition<B: Backend> {
     num_moves: usize,
     moves: Tensor<B, 3, Int>,
     move_map: BTreeMap<String, i32>,
-    piece_index_map: Vec<i32>,
+    orbits: Vec<OrbitDefinition>,
+    orbit_map: Vec<i32>,
+    piece_index_map: Tensor<B, 1, Int>,
     state_len: usize,
 }
 
@@ -65,12 +73,16 @@ impl<B: Backend> LoadedPuzzleDefinition<B> {
 
         let moves = Tensor::from_data(moves_tensordata, &device);
 
+        let piece_index_map = Tensor::from_data(puzzle_def.piece_index_map.as_slice(), &device);
+
         Self {
             device,
             num_moves,
             moves,
             move_map,
-            piece_index_map: puzzle_def.piece_index_map,
+            orbits: puzzle_def.orbits,
+            orbit_map: puzzle_def.orbit_map,
+            piece_index_map,
             state_len: puzzle_def.state_len,
         }
     }
@@ -81,6 +93,8 @@ pub struct PuzzleStates<'a, B: Backend> {
     state: Tensor<B, 2, Int>,
     loaded_puzzle: &'a LoadedPuzzleDefinition<B>,
 }
+
+pub struct PuzzleState<'a, B: Backend>(PuzzleStates<'a, B>);
 
 impl<'a, B: Backend> PuzzleStates<'a, B> {
     pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<B>) -> Self {
@@ -182,5 +196,57 @@ impl<'a, B: Backend> PuzzleStates<'a, B> {
             state: new_state,
             loaded_puzzle: self.loaded_puzzle,
         })
+    }
+
+    pub fn state_at(&self, index: usize) -> PuzzleState<'a, B> {
+        PuzzleState(PuzzleStates {
+            num_states: 1,
+            state: self.state.clone().slice(index..index + 1),
+            loaded_puzzle: self.loaded_puzzle,
+        })
+    }
+}
+
+impl<'a, B: Backend> PuzzleState<'a, B> {
+    pub fn new(loaded_puzzle: &'a LoadedPuzzleDefinition<B>) -> Self {
+        Self(PuzzleStates::new(1, loaded_puzzle))
+    }
+
+    pub fn apply_move(&self, move_name: &str) -> Result<Self> {
+        Ok(Self(PuzzleStates::apply_move(&self.0, move_name)?))
+    }
+
+    pub fn apply_moves(&self, move_names: &[&str]) -> Result<PuzzleStates<'a, B>> {
+        PuzzleStates::apply_moves(&self.0, move_names)
+    }
+
+    pub fn apply_all_moves(&self) -> Result<PuzzleStates<'a, B>> {
+        PuzzleStates::apply_all_moves(&self.0)
+    }
+
+    pub fn to_hashmap(&self) -> Result<Vec<PieceState>> {
+        let loaded_puzzle = &self.0.loaded_puzzle;
+
+        let raw_data = self
+            .0
+            .state
+            .clone()
+            .flatten::<1>(0, 1)
+            .select(0, loaded_puzzle.piece_index_map.clone())
+            .to_data()
+            .to_vec()
+            .map_err(|e| SimError::DataError(e))?;
+
+        Ok(raw_data
+            .into_iter()
+            .enumerate()
+            .map(|(piece_id, state)| {
+                decode_compiled_state(
+                    state,
+                    &loaded_puzzle.orbits[loaded_puzzle.orbit_map[piece_id] as usize],
+                )
+                .expect("illegal state cannot be stored in PuzzleState(s)")
+            })
+            .collect())
     }
 }
