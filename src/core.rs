@@ -84,8 +84,7 @@ pub struct OrbitDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PuzzleDefinition {
     pub moves: Vec<MoveDefinition>,
-    pub states_map: Vec<Vec<String>>,
-    pub state_len: usize,
+    pub solved_state: Vec<PieceState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,5 +99,6 @@ pub struct CompiledPuzzleDefinition {
     pub orbits: Vec<OrbitDefinition>,
     pub orbit_map: Vec<i32>,
     pub piece_index_map: Vec<i32>,
-    pub state_len: usize,
+    pub states_map: Vec<Vec<String>>,
+    pub solved_state: Vec<CompiledPieceState>,
 }

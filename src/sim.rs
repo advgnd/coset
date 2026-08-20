@@ -6,7 +6,7 @@ use burn::{
 };
 
 use crate::{
-    compiler::decode_compiled_state,
+    compiler::decompile_state,
     core::{CompiledPuzzleDefinition, OrbitDefinition, PieceState},
     sim::SimError::MoveNotFound,
 };
@@ -29,7 +29,7 @@ pub struct LoadedPuzzleDefinition<B: Backend> {
     orbits: Vec<OrbitDefinition>,
     orbit_map: Vec<i32>,
     piece_index_map: Tensor<B, 1, Int>,
-    state_len: usize,
+    solved_state: Tensor<B, 1, Int>,
 }
 
 impl<B: Backend> LoadedPuzzleDefinition<B> {
@@ -68,12 +68,12 @@ impl<B: Backend> LoadedPuzzleDefinition<B> {
 
         let moves_tensordata = TensorData::new(
             nested_transforms.into_iter().flatten().flatten().collect(),
-            [num_moves, puzzle_def.state_len, max_state_map_len],
+            [num_moves, puzzle_def.solved_state.len(), max_state_map_len],
         );
 
         let moves = Tensor::from_data(moves_tensordata, &device);
-
         let piece_index_map = Tensor::from_data(puzzle_def.piece_index_map.as_slice(), &device);
+        let solved_state = Tensor::from_data(puzzle_def.solved_state.as_slice(), &device);
 
         Self {
             device,
@@ -83,7 +83,7 @@ impl<B: Backend> LoadedPuzzleDefinition<B> {
             orbits: puzzle_def.orbits,
             orbit_map: puzzle_def.orbit_map,
             piece_index_map,
-            state_len: puzzle_def.state_len,
+            solved_state,
         }
     }
 }
@@ -98,7 +98,11 @@ pub struct PuzzleState<'a, B: Backend>(PuzzleStates<'a, B>);
 
 impl<'a, B: Backend> PuzzleStates<'a, B> {
     pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<B>) -> Self {
-        let state = Tensor::zeros([num_states, loaded_puzzle.state_len], &loaded_puzzle.device);
+        let state = loaded_puzzle
+            .solved_state
+            .clone()
+            .unsqueeze::<2>()
+            .expand([num_states as i32, -1]);
 
         Self {
             num_states,
@@ -198,6 +202,10 @@ impl<'a, B: Backend> PuzzleStates<'a, B> {
         })
     }
 
+    pub fn state(&self) -> Tensor<B, 2, Int> {
+        self.state.clone()
+    }
+
     pub fn state_at(&self, index: usize) -> PuzzleState<'a, B> {
         PuzzleState(PuzzleStates {
             num_states: 1,
@@ -241,12 +249,16 @@ impl<'a, B: Backend> PuzzleState<'a, B> {
             .into_iter()
             .enumerate()
             .map(|(piece_id, state)| {
-                decode_compiled_state(
+                decompile_state(
                     state,
                     &loaded_puzzle.orbits[loaded_puzzle.orbit_map[piece_id] as usize],
                 )
                 .expect("illegal state cannot be stored in PuzzleState(s)")
             })
             .collect())
+    }
+
+    pub fn state(&self) -> Tensor<B, 1, Int> {
+        self.0.state.clone().flatten(0, 1)
     }
 }

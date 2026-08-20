@@ -63,7 +63,7 @@ fn transform_state(
         .collect()
 }
 
-pub fn decode_compiled_state(
+pub fn decompile_state(
     compiled_piece_state: CompiledPieceState,
     orbit: &OrbitDefinition,
 ) -> Result<PieceState> {
@@ -76,7 +76,7 @@ pub fn decode_compiled_state(
         .cloned()
 }
 
-pub fn encode_compiled_state(
+pub fn compile_state(
     piece_state: &PieceState,
     orbit: &OrbitDefinition,
 ) -> Result<CompiledPieceState> {
@@ -101,11 +101,11 @@ fn compile_move(
         let orbit = &orbits[orbit_map[*piece_id as usize] as usize];
 
         for compiled_piece_state in 0..orbit.states.len() {
-            let piece_state = decode_compiled_state(compiled_piece_state as i32, orbit)
+            let piece_state = decompile_state(compiled_piece_state as i32, orbit)
                 .expect("all compiled piece states from 0 to total states should be valid");
             let new_piece_state = transform_state(*piece_id, piece_state, &move_)?;
 
-            row.push(encode_compiled_state(&new_piece_state, orbit)?);
+            row.push(compile_state(&new_piece_state, orbit)?);
         }
 
         transform.push(row);
@@ -118,17 +118,13 @@ fn compile_move(
 }
 
 fn find_orbits(
-    states_map: &[Vec<String>],
+    solved_state: &[PieceState],
     moves: &[MoveDefinition],
 ) -> Result<Vec<OrbitDefinition>> {
     let mut orbit_map: BTreeMap<BTreeSet<PieceState>, BTreeSet<i32>> = BTreeMap::new();
 
-    for (piece_id, states) in states_map.iter().enumerate() {
-        let mut initial_piece_state = PieceState::default();
-
-        for property in states.iter() {
-            initial_piece_state.insert(property.clone(), 0);
-        }
+    for piece_id in 0..solved_state.len() {
+        let initial_piece_state = solved_state[piece_id].clone();
 
         let mut new_piece_states: BTreeSet<PieceState> =
             BTreeSet::from_iter(vec![initial_piece_state]);
@@ -179,10 +175,16 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
     type Error = CompilerError;
 
     fn try_from(puzzle: PuzzleDefinition) -> Result<Self> {
-        let orbits = find_orbits(&puzzle.states_map, &puzzle.moves)?;
+        let states_map = puzzle
+            .solved_state
+            .iter()
+            .map(|state| state.keys().cloned().collect())
+            .collect::<Vec<_>>();
+
+        let orbits = find_orbits(&puzzle.solved_state, &puzzle.moves)?;
         let mut orbit_map = vec![];
 
-        for piece_id in 0..puzzle.state_len {
+        for piece_id in 0..puzzle.solved_state.len() {
             orbit_map.push(
                 orbits
                     .iter()
@@ -207,12 +209,20 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
             .map(|move_| compile_move(move_, &orbits, &orbit_map, &piece_index_map))
             .collect::<Result<Vec<CompiledMoveDefinition>>>()?;
 
+        let compiled_solved_state = puzzle
+            .solved_state
+            .into_iter()
+            .enumerate()
+            .map(|(index, state)| compile_state(&state, &orbits[orbit_map[index] as usize]))
+            .collect::<Result<Vec<CompiledPieceState>>>()?;
+
         Ok(CompiledPuzzleDefinition {
             moves: compiled_moves,
             orbits,
             orbit_map,
             piece_index_map,
-            state_len: puzzle.state_len,
+            states_map,
+            solved_state: compiled_solved_state,
         })
     }
 }
