@@ -3,21 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::core::{
     CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, MoveDefinition,
     OrbitDefinition, PieceState, PuzzleDefinition,
-    TransformIndex::{PieceId, Property},
 };
 
 #[derive(thiserror::Error, Debug)]
 pub enum CompilerError {
-    #[error(
-        "transformation of {property} in move '{move_name}' is indexed by {name}, which is not present in the state of piece #{piece_id}"
-    )]
-    TransformationIndexNotFound {
-        property: String,
-        move_name: String,
-        name: String,
-        piece_id: i32,
-    },
-
     #[error("cannot decode invalid compiled piece state {0}")]
     InvalidCompiledPieceState(i32),
 
@@ -28,39 +17,22 @@ pub enum CompilerError {
 type Result<T> = std::result::Result<T, CompilerError>;
 
 fn transform_state(
-    piece_id: i32,
     piece_state: PieceState,
     move_: &MoveDefinition,
-) -> Result<PieceState> {
-    piece_state
-        .iter()
-        .map(|(property, value)| {
-            let property_transform;
+) -> PieceState {
+    let mut new_piece_state = piece_state.clone();
 
-            if let Some(transform) = move_.transforms.get(property) {
-                property_transform = transform;
-            } else {
-                return Ok((property.clone(), *value));
-            };
+    for (from, to) in move_.transform.iter() {
+        let state_matches = from
+            .iter()
+            .all(|(property, select_value)| piece_state.get(property).map_or(true, |value| value == select_value));
 
-            let index = match &property_transform.index_type {
-                PieceId => piece_id as usize,
-                Property(name) => *piece_state.get(name).ok_or_else(|| {
-                    CompilerError::TransformationIndexNotFound {
-                        property: property.clone(),
-                        move_name: move_.name.clone(),
-                        name: name.clone(),
-                        piece_id,
-                    }
-                })? as usize,
-            };
-
-            Ok((
-                property.clone(),
-                property_transform.value_map[(index, *value as usize)],
-            ))
-        })
-        .collect()
+        if state_matches {
+            new_piece_state.extend(to.clone());
+        }
+    }
+    
+    new_piece_state
 }
 
 pub fn decompile_state(
@@ -103,7 +75,7 @@ fn compile_move(
         for compiled_piece_state in 0..orbit.states.len() {
             let piece_state = decompile_state(compiled_piece_state as i32, orbit)
                 .expect("all compiled piece states from 0 to total states should be valid");
-            let new_piece_state = transform_state(*piece_id, piece_state, &move_)?;
+            let new_piece_state = transform_state(piece_state, &move_);
 
             row.push(compile_state(&new_piece_state, orbit)?);
         }
@@ -140,8 +112,8 @@ fn find_orbits(
                 // For lack of a better variable name, I present you:
                 let new_new_piece_states = old_piece_states
                     .iter()
-                    .map(|state| transform_state(piece_id as i32, state.clone(), move_))
-                    .collect::<Result<Vec<PieceState>>>()?;
+                    .map(|state| transform_state(state.clone(), move_))
+                    .collect::<Vec<PieceState>>();
 
                 new_piece_states.extend(new_new_piece_states);
             }

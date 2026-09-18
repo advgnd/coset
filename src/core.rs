@@ -54,24 +54,25 @@ where
     }
 }
 
+impl<T, U> IntoIterator for PieceState
+where
+    U: Iterator<Item = T>,
+    InnerPieceState: IntoIterator<Item = T, IntoIter = U>,
+{
+    type Item = T;
+    type IntoIter = U;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 pub type CompiledPieceState = i32;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TransformIndex {
-    PieceId,
-    Property(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PropertyTransformDefinition {
-    pub index_type: TransformIndex,
-    pub value_map: Grid<i32>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoveDefinition {
     pub name: String,
-    pub transforms: BTreeMap<String, PropertyTransformDefinition>,
+    pub transform: BTreeMap<PieceState, PieceState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
