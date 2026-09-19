@@ -1,91 +1,37 @@
 use std::{
-    cmp::Ordering,
     collections::BTreeMap,
-    ops::{Deref, DerefMut, Range},
+    fmt::Debug,
+    ops::Range,
+    sync::Arc,
 };
 
-use grid::Grid;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use trait_set::trait_set;
 
-type InnerPieceState = BTreeMap<String, i32>;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct PieceState(InnerPieceState);
-
-impl Deref for PieceState {
-    type Target = InnerPieceState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+trait_set! {
+    pub trait PieceState = Ord + Clone + Debug + Serialize + DeserializeOwned;
 }
 
-impl DerefMut for PieceState {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl PartialOrd for PieceState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PieceState {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let result = self.values().sum::<i32>().cmp(&other.values().sum::<i32>());
-
-        if result == Ordering::Equal {
-            self.0.cmp(&other.0)
-        } else {
-            result
-        }
-    }
-}
-
-impl<T> FromIterator<T> for PieceState
-where
-    InnerPieceState: FromIterator<T>,
-{
-    fn from_iter<I: IntoIterator<Item = T>>(value: I) -> Self {
-        PieceState(value.into_iter().collect())
-    }
-}
-
-impl<T, U> IntoIterator for PieceState
-where
-    U: Iterator<Item = T>,
-    InnerPieceState: IntoIterator<Item = T, IntoIter = U>,
-{
-    type Item = T;
-    type IntoIter = U;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
+pub struct PieceStateStub;
 pub type CompiledPieceState = i32;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MoveDefinition {
-    pub name: String,
-    pub transform: BTreeMap<PieceState, PieceState>,
-}
+pub trait PuzzleMove<T>: Fn(&T) -> T + Debug {}
+
+impl<F, T> PuzzleMove<T> for F where F: Fn(&T) -> T + Debug {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrbitDefinition {
+#[serde(bound = "T: PieceState")]
+pub struct OrbitDefinition<T: PieceState> {
     pub slice: Range<i32>,
     pub pieces: Vec<i32>,
-    pub states: Vec<PieceState>,
+    pub states: Vec<T>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PuzzleDefinition {
-    pub moves: Vec<MoveDefinition>,
-    pub solved_state: Vec<PieceState>,
+#[derive(Debug, Clone)]
+pub struct PuzzleDefinition<T: PieceState> {
+    pub moves: BTreeMap<String, Arc<dyn PuzzleMove<T> + Send + Sync>>,
+    pub solved_state: Vec<T>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,11 +41,11 @@ pub struct CompiledMoveDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompiledPuzzleDefinition {
+#[serde(bound = "T: PieceState")]
+pub struct CompiledPuzzleDefinition<T: PieceState> {
     pub moves: Vec<CompiledMoveDefinition>,
-    pub orbits: Vec<OrbitDefinition>,
+    pub orbits: Vec<OrbitDefinition<T>>,
     pub orbit_map: Vec<i32>,
     pub piece_index_map: Vec<i32>,
-    pub states_map: Vec<Vec<String>>,
     pub solved_state: Vec<CompiledPieceState>,
 }

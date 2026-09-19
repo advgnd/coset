@@ -1,44 +1,28 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use crate::core::{
-    CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, MoveDefinition,
-    OrbitDefinition, PieceState, PuzzleDefinition,
+    CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, OrbitDefinition,
+    PieceState, PuzzleDefinition, PuzzleMove,
 };
 
 #[derive(thiserror::Error, Debug)]
-pub enum CompilerError {
+pub enum CompilerError<T: PieceState> {
     #[error("cannot decode invalid compiled piece state {0}")]
     InvalidCompiledPieceState(i32),
 
     #[error("cannot encode invalid piece state {0:?}")]
-    InvalidPieceState(PieceState),
+    InvalidPieceState(T),
 }
 
-type Result<T> = std::result::Result<T, CompilerError>;
+type Result<T, U> = std::result::Result<T, CompilerError<U>>;
 
-fn transform_state(
-    piece_state: PieceState,
-    move_: &MoveDefinition,
-) -> PieceState {
-    let mut new_piece_state = piece_state.clone();
-
-    for (from, to) in move_.transform.iter() {
-        let state_matches = from
-            .iter()
-            .all(|(property, select_value)| piece_state.get(property).map_or(true, |value| value == select_value));
-
-        if state_matches {
-            new_piece_state.extend(to.clone());
-        }
-    }
-    
-    new_piece_state
-}
-
-pub fn decompile_state(
+pub fn decompile_state<T: PieceState>(
     compiled_piece_state: CompiledPieceState,
-    orbit: &OrbitDefinition,
-) -> Result<PieceState> {
+    orbit: &OrbitDefinition<T>,
+) -> Result<T, T> {
     orbit
         .states
         .get(compiled_piece_state as usize)
@@ -48,10 +32,10 @@ pub fn decompile_state(
         .cloned()
 }
 
-pub fn compile_state(
-    piece_state: &PieceState,
-    orbit: &OrbitDefinition,
-) -> Result<CompiledPieceState> {
+pub fn compile_state<T: PieceState>(
+    piece_state: &T,
+    orbit: &OrbitDefinition<T>,
+) -> Result<CompiledPieceState, T> {
     orbit
         .states
         .iter()
@@ -60,12 +44,13 @@ pub fn compile_state(
         .ok_or_else(|| CompilerError::InvalidPieceState(piece_state.clone()))
 }
 
-fn compile_move(
-    move_: MoveDefinition,
-    orbits: &[OrbitDefinition],
+fn compile_move<T: PieceState>(
+    name: String,
+    move_: Arc<dyn PuzzleMove<T> + Send + Sync>,
+    orbits: &[OrbitDefinition<T>],
     orbit_map: &[i32],
     index_piece_map: &[i32],
-) -> Result<CompiledMoveDefinition> {
+) -> Result<CompiledMoveDefinition, T> {
     let mut transform = vec![];
 
     for piece_id in index_piece_map.iter() {
@@ -75,7 +60,7 @@ fn compile_move(
         for compiled_piece_state in 0..orbit.states.len() {
             let piece_state = decompile_state(compiled_piece_state as i32, orbit)
                 .expect("all compiled piece states from 0 to total states should be valid");
-            let new_piece_state = transform_state(piece_state, &move_);
+            let new_piece_state = move_(&piece_state);
 
             row.push(compile_state(&new_piece_state, orbit)?);
         }
@@ -83,24 +68,20 @@ fn compile_move(
         transform.push(row);
     }
 
-    Ok(CompiledMoveDefinition {
-        name: move_.name,
-        transform,
-    })
+    Ok(CompiledMoveDefinition { name, transform })
 }
 
-fn find_orbits(
-    solved_state: &[PieceState],
-    moves: &[MoveDefinition],
-) -> Result<Vec<OrbitDefinition>> {
-    let mut orbit_map: BTreeMap<BTreeSet<PieceState>, BTreeSet<i32>> = BTreeMap::new();
+fn find_orbits<T: PieceState>(
+    solved_state: &[T],
+    moves: &BTreeMap<String, Arc<dyn PuzzleMove<T> + Send + Sync>>,
+) -> Result<Vec<OrbitDefinition<T>>, T> {
+    let mut orbit_map: BTreeMap<BTreeSet<T>, BTreeSet<i32>> = BTreeMap::new();
 
     for piece_id in 0..solved_state.len() {
         let initial_piece_state = solved_state[piece_id].clone();
 
-        let mut new_piece_states: BTreeSet<PieceState> =
-            BTreeSet::from_iter(vec![initial_piece_state]);
-        let mut visited: BTreeSet<PieceState> = BTreeSet::from_iter(vec![]);
+        let mut new_piece_states: BTreeSet<T> = BTreeSet::from_iter(vec![initial_piece_state]);
+        let mut visited: BTreeSet<T> = BTreeSet::from_iter(vec![]);
 
         while !visited.is_superset(&new_piece_states) {
             let old_piece_states = new_piece_states;
@@ -108,12 +89,12 @@ fn find_orbits(
 
             visited.extend(old_piece_states.iter().cloned());
 
-            for move_ in moves.iter() {
+            for (_, move_) in moves.iter() {
                 // For lack of a better variable name, I present you:
                 let new_new_piece_states = old_piece_states
                     .iter()
-                    .map(|state| transform_state(state.clone(), move_))
-                    .collect::<Vec<PieceState>>();
+                    .map(|state| move_(state))
+                    .collect::<Vec<T>>();
 
                 new_piece_states.extend(new_new_piece_states);
             }
@@ -143,16 +124,10 @@ fn find_orbits(
     Ok(orbit_definitions)
 }
 
-impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
-    type Error = CompilerError;
+impl<T: PieceState> TryFrom<PuzzleDefinition<T>> for CompiledPuzzleDefinition<T> {
+    type Error = CompilerError<T>;
 
-    fn try_from(puzzle: PuzzleDefinition) -> Result<Self> {
-        let states_map = puzzle
-            .solved_state
-            .iter()
-            .map(|state| state.keys().cloned().collect())
-            .collect::<Vec<_>>();
-
+    fn try_from(puzzle: PuzzleDefinition<T>) -> Result<Self, T> {
         let orbits = find_orbits(&puzzle.solved_state, &puzzle.moves)?;
         let mut orbit_map = vec![];
 
@@ -178,22 +153,21 @@ impl TryFrom<PuzzleDefinition> for CompiledPuzzleDefinition {
         let compiled_moves = puzzle
             .moves
             .into_iter()
-            .map(|move_| compile_move(move_, &orbits, &orbit_map, &piece_index_map))
-            .collect::<Result<Vec<CompiledMoveDefinition>>>()?;
+            .map(|(name, move_)| compile_move(name, move_, &orbits, &orbit_map, &piece_index_map))
+            .collect::<Result<Vec<CompiledMoveDefinition>, T>>()?;
 
         let compiled_solved_state = puzzle
             .solved_state
             .into_iter()
             .enumerate()
             .map(|(index, state)| compile_state(&state, &orbits[orbit_map[index] as usize]))
-            .collect::<Result<Vec<CompiledPieceState>>>()?;
+            .collect::<Result<Vec<CompiledPieceState>, T>>()?;
 
         Ok(CompiledPuzzleDefinition {
             moves: compiled_moves,
             orbits,
             orbit_map,
             piece_index_map,
-            states_map,
             solved_state: compiled_solved_state,
         })
     }

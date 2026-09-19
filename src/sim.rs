@@ -21,19 +21,19 @@ pub enum SimError {
 
 type Result<T> = std::result::Result<T, SimError>;
 
-pub struct LoadedPuzzleDefinition<B: Backend> {
+pub struct LoadedPuzzleDefinition<T: PieceState, B: Backend> {
     device: B::Device,
     num_moves: usize,
     moves: Tensor<B, 3, Int>,
     move_map: BTreeMap<String, i32>,
-    orbits: Vec<OrbitDefinition>,
+    orbits: Vec<OrbitDefinition<T>>,
     orbit_map: Vec<i32>,
     piece_index_map: Tensor<B, 1, Int>,
     solved_state: Tensor<B, 1, Int>,
 }
 
-impl<B: Backend> LoadedPuzzleDefinition<B> {
-    pub fn load(puzzle_def: CompiledPuzzleDefinition, device: B::Device) -> Self {
+impl<T: PieceState, B: Backend> LoadedPuzzleDefinition<T, B> {
+    pub fn load(puzzle_def: CompiledPuzzleDefinition<T>, device: B::Device) -> Self {
         let num_moves = puzzle_def.moves.len();
         let mut nested_transforms = vec![];
         let mut move_map = BTreeMap::new();
@@ -88,16 +88,16 @@ impl<B: Backend> LoadedPuzzleDefinition<B> {
     }
 }
 
-pub struct PuzzleStates<'a, B: Backend> {
+pub struct PuzzleStates<'a, T: PieceState, B: Backend> {
     num_states: usize,
     state: Tensor<B, 2, Int>,
-    loaded_puzzle: &'a LoadedPuzzleDefinition<B>,
+    loaded_puzzle: &'a LoadedPuzzleDefinition<T, B>,
 }
 
-pub struct PuzzleState<'a, B: Backend>(PuzzleStates<'a, B>);
+pub struct PuzzleState<'a, T: PieceState, B: Backend>(PuzzleStates<'a, T, B>);
 
-impl<'a, B: Backend> PuzzleStates<'a, B> {
-    pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<B>) -> Self {
+impl<'a, T: PieceState, B: Backend> PuzzleStates<'a, T, B> {
+    pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<T, B>) -> Self {
         let state = loaded_puzzle
             .solved_state
             .clone()
@@ -206,7 +206,7 @@ impl<'a, B: Backend> PuzzleStates<'a, B> {
         self.state.clone()
     }
 
-    pub fn state_at(&self, index: usize) -> PuzzleState<'a, B> {
+    pub fn state_at(&self, index: usize) -> PuzzleState<'a, T, B> {
         PuzzleState(PuzzleStates {
             num_states: 1,
             state: self.state.clone().slice(index..index + 1),
@@ -215,8 +215,8 @@ impl<'a, B: Backend> PuzzleStates<'a, B> {
     }
 }
 
-impl<'a, B: Backend> PuzzleState<'a, B> {
-    pub fn new(loaded_puzzle: &'a LoadedPuzzleDefinition<B>) -> Self {
+impl<'a, T: PieceState, B: Backend> PuzzleState<'a, T, B> {
+    pub fn new(loaded_puzzle: &'a LoadedPuzzleDefinition<T, B>) -> Self {
         Self(PuzzleStates::new(1, loaded_puzzle))
     }
 
@@ -224,15 +224,15 @@ impl<'a, B: Backend> PuzzleState<'a, B> {
         Ok(Self(PuzzleStates::apply_move(&self.0, move_name)?))
     }
 
-    pub fn apply_moves(&self, move_names: &[&str]) -> Result<PuzzleStates<'a, B>> {
+    pub fn apply_moves(&self, move_names: &[&str]) -> Result<PuzzleStates<'a, T, B>> {
         PuzzleStates::apply_moves(&self.0, move_names)
     }
 
-    pub fn apply_all_moves(&self) -> Result<PuzzleStates<'a, B>> {
+    pub fn apply_all_moves(&self) -> Result<PuzzleStates<'a, T, B>> {
         PuzzleStates::apply_all_moves(&self.0)
     }
 
-    pub fn to_hashmap(&self) -> Result<Vec<PieceState>> {
+    pub fn to_hashmap(&self) -> Result<Vec<T>> {
         let loaded_puzzle = &self.0.loaded_puzzle;
 
         let raw_data = self
