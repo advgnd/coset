@@ -12,14 +12,11 @@ trait_set! {
     pub trait PieceState = Ord + Clone + Debug + Serialize + DeserializeOwned;
 }
 
+pub type PuzzleMove<T: PieceState> = Arc<dyn Fn(&T) -> T + Send + Sync>;
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub struct PieceStateStub;
 pub type CompiledPieceState = i32;
-
-pub trait PuzzleMove<T>: Fn(&T) -> T + Debug {}
-
-impl<F, T> PuzzleMove<T> for F where F: Fn(&T) -> T + Debug {}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: PieceState")]
 pub struct OrbitDefinition<T: PieceState> {
@@ -28,9 +25,9 @@ pub struct OrbitDefinition<T: PieceState> {
     pub states: Vec<T>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PuzzleDefinition<T: PieceState> {
-    pub moves: BTreeMap<String, Arc<dyn PuzzleMove<T> + Send + Sync>>,
+    pub moves: BTreeMap<String, PuzzleMove<T>>,
     pub solved_state: Vec<T>,
 }
 
@@ -45,7 +42,7 @@ pub struct CompiledMoveDefinition {
 pub struct CompiledPuzzleDefinition<T: PieceState> {
     pub moves: Vec<CompiledMoveDefinition>,
     pub orbits: Vec<OrbitDefinition<T>>,
-    pub orbit_map: Vec<i32>,
+    pub piece_orbit_map: Vec<i32>,
     pub piece_index_map: Vec<i32>,
     pub solved_state: Vec<CompiledPieceState>,
 }

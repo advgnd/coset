@@ -27,7 +27,7 @@ pub struct LoadedPuzzleDefinition<T: PieceState, B: Backend> {
     moves: Tensor<B, 3, Int>,
     move_map: BTreeMap<String, i32>,
     orbits: Vec<OrbitDefinition<T>>,
-    orbit_map: Vec<i32>,
+    piece_orbit_map: Vec<i32>,
     piece_index_map: Tensor<B, 1, Int>,
     solved_state: Tensor<B, 1, Int>,
 }
@@ -81,7 +81,7 @@ impl<T: PieceState, B: Backend> LoadedPuzzleDefinition<T, B> {
             moves,
             move_map,
             orbits: puzzle_def.orbits,
-            orbit_map: puzzle_def.orbit_map,
+            piece_orbit_map: puzzle_def.piece_orbit_map,
             piece_index_map,
             solved_state,
         }
@@ -251,7 +251,7 @@ impl<'a, T: PieceState, B: Backend> PuzzleState<'a, T, B> {
             .map(|(piece_id, state)| {
                 decompile_state(
                     state,
-                    &loaded_puzzle.orbits[loaded_puzzle.orbit_map[piece_id] as usize],
+                    &loaded_puzzle.orbits[loaded_puzzle.piece_orbit_map[piece_id] as usize],
                 )
                 .expect("illegal state cannot be stored in PuzzleState(s)")
             })
