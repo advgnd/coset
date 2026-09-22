@@ -1,12 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Debug,
+    hash::Hash,
+};
+
+use indexmap::IndexSet;
 
 use crate::core::{
     CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, OrbitDefinition,
-    PieceState, PuzzleDefinition, PuzzleMove,
+    PuzzleDefinition, PuzzleMove,
 };
 
 #[derive(thiserror::Error, Debug)]
-pub enum CompilerError<T: PieceState> {
+pub enum CompilerError<T> {
     #[error("cannot decode invalid compiled piece state {0}")]
     InvalidCompiledPieceState(i32),
 
@@ -16,7 +22,7 @@ pub enum CompilerError<T: PieceState> {
 
 type Result<T, U> = std::result::Result<T, CompilerError<U>>;
 
-pub fn decompile_state<T: PieceState>(
+pub fn decompile_state<T: Clone>(
     compiled_piece_state: CompiledPieceState,
     orbit: &OrbitDefinition<T>,
 ) -> Result<T, T> {
@@ -29,7 +35,7 @@ pub fn decompile_state<T: PieceState>(
         .cloned()
 }
 
-pub fn compile_state<T: PieceState>(
+pub fn compile_state<T: Clone + Eq>(
     piece_state: &T,
     orbit: &OrbitDefinition<T>,
 ) -> Result<CompiledPieceState, T> {
@@ -41,22 +47,22 @@ pub fn compile_state<T: PieceState>(
         .ok_or_else(|| CompilerError::InvalidPieceState(piece_state.clone()))
 }
 
-fn bfs<T, S: Ord>(
+fn bfs<T: Clone + Hash + Eq>(
     initial_state: T,
     transform: impl Fn(&T) -> Vec<T> + Send + Sync,
-    key: impl Fn(&T) -> S,
-) -> Vec<S> {
-    let mut visited: BTreeSet<S> = BTreeSet::new();
-    let mut queue: Vec<T> = vec![initial_state];
+) -> Vec<T> {
+    let mut visited = IndexSet::new();
+    let mut queue = VecDeque::new();
 
-    while let Some(state) = queue.pop() {
+    visited.insert(initial_state.clone());
+    queue.push_back(initial_state);
+
+    while let Some(state) = queue.pop_front() {
         let new_states = transform(&state);
 
         for new_state in new_states {
-            let new_state_key = key(&new_state);
-
-            if visited.insert(new_state_key) {
-                queue.push(new_state);
+            if visited.insert(new_state.clone()) {
+                queue.push_back(new_state);
             }
         }
     }
@@ -64,7 +70,7 @@ fn bfs<T, S: Ord>(
     visited.into_iter().collect()
 }
 
-fn compile_move<T: PieceState>(
+fn compile_move<T: Debug + Clone + Eq>(
     name: String,
     move_: PuzzleMove<T>,
     orbits: &[OrbitDefinition<T>],
@@ -91,18 +97,16 @@ fn compile_move<T: PieceState>(
     Ok(CompiledMoveDefinition { name, transform })
 }
 
-fn find_orbits<T: PieceState>(
+fn find_orbits<T: Clone + Eq + Hash>(
     solved_state: &[T],
-    moves: &Vec<PuzzleMove<T>>,
+    moves: &Vec<&PuzzleMove<T>>,
 ) -> (Vec<OrbitDefinition<T>>, Vec<i32>) {
-    let mut orbit_piece_map: BTreeMap<Vec<T>, Vec<i32>> = BTreeMap::new();
+    let mut orbit_piece_map: HashMap<Vec<T>, Vec<i32>> = HashMap::new();
 
     for piece_id in 0..solved_state.len() {
-        let visited = bfs(
-            solved_state[piece_id].clone(),
-            |state| moves.iter().map(|move_| move_(state)).collect(),
-            |state| state.clone(),
-        );
+        let visited = bfs(solved_state[piece_id].clone(), |state| {
+            moves.iter().map(|move_| move_(state)).collect()
+        });
 
         orbit_piece_map
             .entry(visited)
@@ -133,14 +137,12 @@ fn find_orbits<T: PieceState>(
     (orbit_definitions, piece_orbit_map)
 }
 
-impl<T: PieceState> TryFrom<PuzzleDefinition<T>> for CompiledPuzzleDefinition<T> {
+impl<T: Debug + Clone + Eq + Hash> TryFrom<PuzzleDefinition<T>> for CompiledPuzzleDefinition<T> {
     type Error = CompilerError<T>;
 
     fn try_from(puzzle: PuzzleDefinition<T>) -> Result<Self, T> {
-        let (orbits, piece_orbit_map) = find_orbits(
-            &puzzle.solved_state,
-            &puzzle.moves.values().cloned().collect(),
-        );
+        let (orbits, piece_orbit_map) =
+            find_orbits(&puzzle.solved_state, &puzzle.moves.values().collect());
 
         let index_piece_map: Vec<i32> = orbits
             .iter()

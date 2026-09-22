@@ -1,33 +1,21 @@
-use std::{
-    collections::BTreeMap,
-    fmt::Debug,
-    ops::Range,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Debug, ops::Range};
 
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use trait_set::trait_set;
+use serde::{Deserialize, Serialize};
 
-trait_set! {
-    pub trait PieceState = Ord + Clone + Debug + Serialize + DeserializeOwned;
-}
-
-pub type PuzzleMove<T: PieceState> = Arc<dyn Fn(&T) -> T + Send + Sync>;
+pub type PuzzleMove<T> = Box<dyn Fn(&T) -> T + Send + Sync>;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub struct PieceStateStub;
 pub type CompiledPieceState = i32;
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound = "T: PieceState")]
-pub struct OrbitDefinition<T: PieceState> {
+pub struct OrbitDefinition<T> {
     pub slice: Range<i32>,
     pub pieces: Vec<i32>,
     pub states: Vec<T>,
 }
 
-#[derive(Clone)]
-pub struct PuzzleDefinition<T: PieceState> {
-    pub moves: BTreeMap<String, PuzzleMove<T>>,
+pub struct PuzzleDefinition<T> {
+    pub moves: HashMap<String, PuzzleMove<T>>,
     pub solved_state: Vec<T>,
 }
 
@@ -38,8 +26,7 @@ pub struct CompiledMoveDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound = "T: PieceState")]
-pub struct CompiledPuzzleDefinition<T: PieceState> {
+pub struct CompiledPuzzleDefinition<T> {
     pub moves: Vec<CompiledMoveDefinition>,
     pub orbits: Vec<OrbitDefinition<T>>,
     pub piece_orbit_map: Vec<i32>,

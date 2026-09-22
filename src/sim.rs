@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::HashMap, fmt::Debug};
 
 use burn::{
     Tensor,
@@ -7,7 +7,7 @@ use burn::{
 
 use crate::{
     compiler::decompile_state,
-    core::{CompiledPuzzleDefinition, OrbitDefinition, PieceState},
+    core::{CompiledPuzzleDefinition, OrbitDefinition},
     sim::SimError::MoveNotFound,
 };
 
@@ -21,22 +21,22 @@ pub enum SimError {
 
 type Result<T> = std::result::Result<T, SimError>;
 
-pub struct LoadedPuzzleDefinition<T: PieceState, B: Backend> {
+pub struct LoadedPuzzleDefinition<T, B: Backend> {
     device: B::Device,
     num_moves: usize,
     moves: Tensor<B, 3, Int>,
-    move_map: BTreeMap<String, i32>,
+    move_map: HashMap<String, i32>,
     orbits: Vec<OrbitDefinition<T>>,
     piece_orbit_map: Vec<i32>,
     piece_index_map: Tensor<B, 1, Int>,
     solved_state: Tensor<B, 1, Int>,
 }
 
-impl<T: PieceState, B: Backend> LoadedPuzzleDefinition<T, B> {
+impl<T, B: Backend> LoadedPuzzleDefinition<T, B> {
     pub fn load(puzzle_def: CompiledPuzzleDefinition<T>, device: B::Device) -> Self {
         let num_moves = puzzle_def.moves.len();
         let mut nested_transforms = vec![];
-        let mut move_map = BTreeMap::new();
+        let mut move_map = HashMap::new();
         let max_state_map_len = puzzle_def
             .moves
             .iter()
@@ -88,15 +88,15 @@ impl<T: PieceState, B: Backend> LoadedPuzzleDefinition<T, B> {
     }
 }
 
-pub struct PuzzleStates<'a, T: PieceState, B: Backend> {
+pub struct PuzzleStates<'a, T, B: Backend> {
     num_states: usize,
     state: Tensor<B, 2, Int>,
     loaded_puzzle: &'a LoadedPuzzleDefinition<T, B>,
 }
 
-pub struct PuzzleState<'a, T: PieceState, B: Backend>(PuzzleStates<'a, T, B>);
+pub struct PuzzleState<'a, T, B: Backend>(PuzzleStates<'a, T, B>);
 
-impl<'a, T: PieceState, B: Backend> PuzzleStates<'a, T, B> {
+impl<'a, T, B: Backend> PuzzleStates<'a, T, B> {
     pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<T, B>) -> Self {
         let state = loaded_puzzle
             .solved_state
@@ -215,7 +215,7 @@ impl<'a, T: PieceState, B: Backend> PuzzleStates<'a, T, B> {
     }
 }
 
-impl<'a, T: PieceState, B: Backend> PuzzleState<'a, T, B> {
+impl<'a, T: Debug + Clone, B: Backend> PuzzleState<'a, T, B> {
     pub fn new(loaded_puzzle: &'a LoadedPuzzleDefinition<T, B>) -> Self {
         Self(PuzzleStates::new(1, loaded_puzzle))
     }
