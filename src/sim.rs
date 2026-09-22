@@ -24,6 +24,7 @@ type Result<T, U> = std::result::Result<T, SimError<U>>;
 pub struct LoadedPuzzleDefinition<T, U, B: Backend> {
     device: B::Device,
     num_moves: usize,
+    num_pieces: usize,
     moves: Tensor<B, 3, Int>,
     move_map: HashMap<U, i32>,
     orbits: Vec<OrbitDefinition<T>>,
@@ -71,6 +72,7 @@ impl<T, U: Eq + Hash, B: Backend> LoadedPuzzleDefinition<T, U, B> {
         Self {
             device,
             num_moves,
+            num_pieces,
             moves,
             move_map,
             orbits: puzzle_def.orbits,
@@ -89,7 +91,7 @@ pub struct PuzzleStates<'a, T, U, B: Backend> {
 
 pub struct PuzzleState<'a, T, U, B: Backend>(PuzzleStates<'a, T, U, B>);
 
-impl<'a, T, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T, U, B> {
+impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T, U, B> {
     pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<T, U, B>) -> Self {
         let state = loaded_puzzle
             .solved_state
@@ -196,16 +198,34 @@ impl<'a, T, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T, U, B> {
         })
     }
 
-    pub fn state(&self) -> Tensor<B, 2, Int> {
+    pub fn raw_states(&self) -> Tensor<B, 2, Int> {
         self.state.clone()
     }
 
-    pub fn state_at(&self, index: usize) -> PuzzleState<'a, T, U, B> {
-        PuzzleState(PuzzleStates {
-            num_states: 1,
-            state: self.state.clone().slice(index..index + 1),
-            loaded_puzzle: self.loaded_puzzle,
-        })
+    pub fn states(&self) -> Result<Vec<Vec<T>>, U> {
+        let raw_data = self
+            .state
+            .clone()
+            .select(1, self.loaded_puzzle.piece_index_map.clone())
+            .to_data()
+            .to_vec()
+            .map_err(SimError::DataError)?;
+        
+        let raw_data = raw_data.chunks(self.loaded_puzzle.num_pieces);
+
+        Ok(raw_data
+            .map(|state|
+                state.into_iter()
+            .enumerate()
+            .map(|(piece_id, piece_state)| {
+                decompile_state(
+                    *piece_state,
+                    &self.loaded_puzzle.orbits[self.loaded_puzzle.piece_orbit_map[piece_id] as usize],
+                )
+                .expect("illegal state cannot be stored in PuzzleState(s)")
+            })
+            .collect()
+            ).collect())
     }
 }
 
@@ -215,44 +235,22 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleState<'a, T, 
     }
 
     pub fn apply_move(&self, move_key: &U) -> Result<Self, U> {
-        Ok(Self(PuzzleStates::apply_move(&self.0, move_key)?))
+        self.0.apply_move(move_key).map(|new_state| Self(new_state))
     }
 
     pub fn apply_moves(&self, move_keys: &[&U]) -> Result<PuzzleStates<'a, T, U, B>, U> {
-        PuzzleStates::apply_moves(&self.0, move_keys)
+        self.0.apply_moves(move_keys)
     }
 
     pub fn apply_all_moves(&self) -> Result<PuzzleStates<'a, T, U, B>, U> {
-        PuzzleStates::apply_all_moves(&self.0)
+        self.0.apply_all_moves()
     }
 
-    pub fn to_hashmap(&self) -> Result<Vec<T>, U> {
-        let loaded_puzzle = self.0.loaded_puzzle;
-
-        let raw_data = self
-            .0
-            .state
-            .clone()
-            .flatten::<1>(0, 1)
-            .select(0, loaded_puzzle.piece_index_map.clone())
-            .to_data()
-            .to_vec()
-            .map_err(SimError::DataError)?;
-
-        Ok(raw_data
-            .into_iter()
-            .enumerate()
-            .map(|(piece_id, state)| {
-                decompile_state(
-                    state,
-                    &loaded_puzzle.orbits[loaded_puzzle.piece_orbit_map[piece_id] as usize],
-                )
-                .expect("illegal state cannot be stored in PuzzleState(s)")
-            })
-            .collect())
+    pub fn raw_state(&self) -> Tensor<B, 2, Int> {
+        self.0.raw_states().squeeze_dim(0)
     }
 
-    pub fn state(&self) -> Tensor<B, 1, Int> {
-        self.0.state.clone().flatten(0, 1)
+    pub fn state(&self) -> Result<Vec<T>, U> {
+        self.0.states().map(|mut states| states.pop().unwrap_or_default())
     }
 }
