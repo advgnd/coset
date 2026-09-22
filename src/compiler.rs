@@ -136,10 +136,12 @@ fn find_orbits<T: Clone + Eq + Hash>(
     (orbit_definitions, piece_orbit_map)
 }
 
-impl<T: Debug + Clone + Eq + Hash> TryFrom<PuzzleDefinition<T>> for CompiledPuzzleDefinition<T> {
+impl<T: Debug + Clone + Eq + Hash, U: Eq + Hash> TryFrom<PuzzleDefinition<T, U>>
+    for CompiledPuzzleDefinition<T, U>
+{
     type Error = CompilerError<T>;
 
-    fn try_from(puzzle: PuzzleDefinition<T>) -> Result<Self, T> {
+    fn try_from(puzzle: PuzzleDefinition<T, U>) -> Result<Self, T> {
         let (orbits, piece_orbit_map) =
             find_orbits(&puzzle.solved_state, &puzzle.moves.values().collect());
 
@@ -160,7 +162,7 @@ impl<T: Debug + Clone + Eq + Hash> TryFrom<PuzzleDefinition<T>> for CompiledPuzz
                 compile_move(move_, &orbits, &piece_orbit_map, &piece_index_map)
                     .map(|compiled_move| (name, compiled_move))
             })
-            .collect::<Result<HashMap<String, CompiledMove>, T>>()?;
+            .collect::<Result<_, T>>()?;
 
         let compiled_solved_state = puzzle
             .solved_state

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, ops::Range};
+use std::{collections::HashMap, fmt::Debug, hash::Hash, ops::Range};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,14 +14,14 @@ pub struct OrbitDefinition<T> {
     pub states: Vec<T>,
 }
 
-pub struct PuzzleDefinition<T> {
-    pub moves: HashMap<String, Move<T>>,
+pub struct PuzzleDefinition<T, U> {
+    pub moves: HashMap<U, Move<T>>,
     pub solved_state: Vec<T>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompiledPuzzleDefinition<T> {
-    pub moves: HashMap<String, CompiledMove>,
+pub struct CompiledPuzzleDefinition<T, U: Eq + Hash> {
+    pub moves: HashMap<U, CompiledMove>,
     pub orbits: Vec<OrbitDefinition<T>>,
     pub piece_orbit_map: Vec<i32>,
     pub piece_index_map: Vec<i32>,
