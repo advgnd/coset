@@ -7,8 +7,8 @@ use std::{
 use indexmap::IndexSet;
 
 use crate::core::{
-    CompiledMoveDefinition, CompiledPieceState, CompiledPuzzleDefinition, OrbitDefinition,
-    PuzzleDefinition, PuzzleMove,
+    CompiledMove, CompiledPieceState, CompiledPuzzleDefinition, Move, OrbitDefinition,
+    PuzzleDefinition,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -71,12 +71,11 @@ fn bfs<T: Clone + Hash + Eq>(
 }
 
 fn compile_move<T: Debug + Clone + Eq>(
-    name: String,
-    move_: PuzzleMove<T>,
+    move_: Move<T>,
     orbits: &[OrbitDefinition<T>],
     orbit_map: &[i32],
     index_piece_map: &[i32],
-) -> Result<CompiledMoveDefinition, T> {
+) -> Result<CompiledMove, T> {
     let mut transform = vec![];
 
     for piece_id in index_piece_map.iter() {
@@ -94,12 +93,12 @@ fn compile_move<T: Debug + Clone + Eq>(
         transform.push(row);
     }
 
-    Ok(CompiledMoveDefinition { name, transform })
+    Ok(transform)
 }
 
 fn find_orbits<T: Clone + Eq + Hash>(
     solved_state: &[T],
-    moves: &Vec<&PuzzleMove<T>>,
+    moves: &Vec<&Move<T>>,
 ) -> (Vec<OrbitDefinition<T>>, Vec<i32>) {
     let mut orbit_piece_map: HashMap<Vec<T>, Vec<i32>> = HashMap::new();
 
@@ -158,9 +157,10 @@ impl<T: Debug + Clone + Eq + Hash> TryFrom<PuzzleDefinition<T>> for CompiledPuzz
             .moves
             .into_iter()
             .map(|(name, move_)| {
-                compile_move(name, move_, &orbits, &piece_orbit_map, &piece_index_map)
+                compile_move(move_, &orbits, &piece_orbit_map, &piece_index_map)
+                    .map(|compiled_move| (name, compiled_move))
             })
-            .collect::<Result<Vec<CompiledMoveDefinition>, T>>()?;
+            .collect::<Result<HashMap<String, CompiledMove>, T>>()?;
 
         let compiled_solved_state = puzzle
             .solved_state
