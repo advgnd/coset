@@ -1353,6 +1353,7 @@ dependencies = [
  "burn",
  "indexmap",
  "serde",
+ "strum",
  "thiserror 2.0.20",
 ]
 
