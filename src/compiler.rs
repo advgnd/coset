@@ -7,8 +7,7 @@ use std::{
 use indexmap::IndexSet;
 
 use crate::core::{
-    CompiledMove, CompiledPieceState, CompiledPuzzleDefinition, Move, OrbitDefinition,
-    PuzzleDefinition,
+    CompiledMove, CompiledPieceState, CompiledPuzzleDefinition, DfaEvaluator, Move, OrbitDefinition, PuzzleDefinition,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -49,7 +48,7 @@ pub fn compile_state<T: Clone + Eq>(
 
 fn bfs<T: Clone + Hash + Eq>(
     initial_state: T,
-    transform: impl Fn(&T) -> Vec<T> + Send + Sync,
+    transform: impl Fn(&T) -> Vec<T>,
 ) -> Vec<T> {
     let mut visited = IndexSet::new();
     let mut queue = VecDeque::new();
@@ -71,7 +70,7 @@ fn bfs<T: Clone + Hash + Eq>(
 }
 
 fn compile_move<T: Debug + Clone + Eq>(
-    move_: Move<T>,
+    move_: &Move<T>,
     orbits: &[OrbitDefinition<T>],
     orbit_map: &[i32],
     index_piece_map: &[i32],
@@ -136,14 +135,48 @@ fn find_orbits<T: Clone + Eq + Hash>(
     (orbit_definitions, piece_orbit_map)
 }
 
-impl<T: Debug + Clone + Eq + Hash, U: Eq + Hash> TryFrom<PuzzleDefinition<T, U>>
+fn find_dfa_masks<T: Clone + Default + Eq + Hash, U: Eq + Hash>(
+    dfa_eval: &DfaEvaluator<T, U>,
+    moves: &Vec<U>,
+) -> (Vec<Vec<i32>>, Vec<Vec<i32>>) {
+    let dfa_states = bfs(T::default(), |dfa_state| {
+        moves
+            .iter()
+            .filter_map(|move_| dfa_eval(dfa_state, move_))
+            .collect()
+    })
+    .into_iter()
+    .collect::<IndexSet<_>>();
+
+    let mut allowed_moves = vec![];
+    let mut next_dfa_states = vec![];
+
+    for dfa_state in dfa_states.iter() {
+        let mut mask = vec![];
+        let mut next_states = vec![];
+
+        for (move_index, move_) in moves.iter().enumerate() {
+            if let Some(next_dfa_state) = dfa_eval(dfa_state, move_) {
+                mask.push(move_index as i32);
+                next_states.push(dfa_states.get_index_of(&next_dfa_state).unwrap() as i32);
+            }
+        }
+
+        allowed_moves.push(mask);
+        next_dfa_states.push(next_states);
+    }
+
+    (allowed_moves, next_dfa_states)
+}
+
+impl<T: Debug + Clone + Eq + Hash + 'static, U: Clone + Eq + Hash + 'static, V: Clone + Default + Eq + Hash + 'static> TryFrom<PuzzleDefinition<T, U, V>>
     for CompiledPuzzleDefinition<T, U>
 {
     type Error = CompilerError<T>;
 
-    fn try_from(puzzle: PuzzleDefinition<T, U>) -> Result<Self, T> {
+    fn try_from(puzzle: PuzzleDefinition<T, U, V>) -> Result<Self, T> {
         let (orbits, piece_orbit_map) =
-            find_orbits(&puzzle.solved_state, &puzzle.moves.values().collect());
+            find_orbits(&puzzle.solved_state, &puzzle.moves.values().map(|move_| move_.as_ref()).collect());
 
         let index_piece_map: Vec<i32> = orbits
             .iter()
@@ -157,10 +190,9 @@ impl<T: Debug + Clone + Eq + Hash, U: Eq + Hash> TryFrom<PuzzleDefinition<T, U>>
 
         let compiled_moves = puzzle
             .moves
-            .into_iter()
-            .map(|(name, move_)| {
+            .iter()
+            .map(|(_, move_)| {
                 compile_move(move_, &orbits, &piece_orbit_map, &piece_index_map)
-                    .map(|compiled_move| (name, compiled_move))
             })
             .collect::<Result<_, T>>()?;
 
@@ -171,12 +203,17 @@ impl<T: Debug + Clone + Eq + Hash, U: Eq + Hash> TryFrom<PuzzleDefinition<T, U>>
             .map(|(index, state)| compile_state(&state, &orbits[piece_orbit_map[index] as usize]))
             .collect::<Result<Vec<CompiledPieceState>, T>>()?;
 
+        let (allowed_moves, next_dfa_states) = find_dfa_masks(&puzzle.dfa_eval, &puzzle.moves.keys().cloned().collect());
+
         Ok(CompiledPuzzleDefinition {
-            moves: compiled_moves,
+            moves: puzzle.moves.keys().cloned().collect(),
+            compiled_moves,
             orbits,
             piece_orbit_map,
             piece_index_map,
             solved_state: compiled_solved_state,
+            allowed_moves,
+            next_dfa_states,
         })
     }
 }

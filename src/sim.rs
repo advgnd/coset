@@ -1,9 +1,9 @@
-use std::{collections::HashMap, fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash};
 
 use burn::{
-    Tensor,
-    tensor::{DataError, Int, TensorData, backend::Backend},
+    Tensor, tensor::{DataError, Int, TensorData, backend::Backend},
 };
+use indexmap::IndexSet;
 
 use crate::{
     compiler::decompile_state,
@@ -26,19 +26,32 @@ pub struct LoadedPuzzleDefinition<T, U, B: Backend> {
     num_moves: usize,
     num_pieces: usize,
     moves: Tensor<B, 3, Int>,
-    move_map: HashMap<U, i32>,
+    move_map: IndexSet<U>,
     orbits: Vec<OrbitDefinition<T>>,
     piece_orbit_map: Vec<i32>,
     piece_index_map: Tensor<B, 1, Int>,
     solved_state: Tensor<B, 1, Int>,
+    allowed_moves: Tensor<B, 2, Int>,
+    next_dfa_states: Tensor<B, 2, Int>,
+}
+
+fn pad_nested_vec<T: Clone>(nested_vec: Vec<Vec<T>>, pad_value: T, pad_size: usize) -> Vec<Vec<T>> {
+    let padded_vec = nested_vec
+        .into_iter()
+        .map(|mut vec| {
+            vec.resize(pad_size, pad_value.clone());
+            vec
+        })
+        .collect();
+
+    padded_vec
 }
 
 impl<T, U: Eq + Hash, B: Backend> LoadedPuzzleDefinition<T, U, B> {
     pub fn load(puzzle_def: CompiledPuzzleDefinition<T, U>, device: B::Device) -> Self {
         let num_moves = puzzle_def.moves.len();
         let num_pieces = puzzle_def.solved_state.len();
-        let mut nested_transforms = vec![];
-        let mut move_map = HashMap::new();
+        let num_dfa_states = puzzle_def.next_dfa_states.len();
         let max_states_len = puzzle_def
             .orbits
             .iter()
@@ -46,26 +59,32 @@ impl<T, U: Eq + Hash, B: Backend> LoadedPuzzleDefinition<T, U, B> {
             .max()
             .unwrap_or(0) as usize;
 
-        for (i, (name, move_)) in puzzle_def.moves.into_iter().enumerate() {
-            let padded_transform = move_
-                .iter()
-                .map(|state_map| {
-                    let mut padded_state_map = state_map.clone();
-                    padded_state_map.resize(max_states_len, 0);
-                    padded_state_map
-                })
-                .collect::<Vec<_>>();
-
-            nested_transforms.push(padded_transform);
-            move_map.insert(name, i as i32);
-        }
+        let padded_transforms = puzzle_def
+            .compiled_moves
+            .into_iter()
+            .map(|move_| pad_nested_vec(move_, -1, max_states_len))
+            .collect::<Vec<_>>();
 
         let moves_tensordata = TensorData::new(
-            nested_transforms.into_iter().flatten().flatten().collect(),
+            padded_transforms.into_iter().flatten().flatten().collect(),
             [num_moves, num_pieces, max_states_len],
         );
-
         let moves = Tensor::from_data(moves_tensordata, &device);
+
+        let padded_allowed_moves = pad_nested_vec(puzzle_def.allowed_moves, -1, num_moves);
+        let allowed_moves_tensordata = TensorData::new(
+            padded_allowed_moves.into_iter().flatten().collect(),
+            [num_dfa_states, num_moves],
+        );
+        let allowed_moves = Tensor::from_data(allowed_moves_tensordata, &device);
+
+        let padded_next_dfa_states = pad_nested_vec(puzzle_def.next_dfa_states, -1, num_moves);
+        let next_dfa_states_tensordata = TensorData::new(
+            padded_next_dfa_states.into_iter().flatten().collect(),
+            [num_dfa_states, num_moves],
+        );
+        let next_dfa_states = Tensor::from_data(next_dfa_states_tensordata, &device);
+
         let piece_index_map = Tensor::from_data(puzzle_def.piece_index_map.as_slice(), &device);
         let solved_state = Tensor::from_data(puzzle_def.solved_state.as_slice(), &device);
 
@@ -74,18 +93,20 @@ impl<T, U: Eq + Hash, B: Backend> LoadedPuzzleDefinition<T, U, B> {
             num_moves,
             num_pieces,
             moves,
-            move_map,
+            move_map: puzzle_def.moves,
             orbits: puzzle_def.orbits,
             piece_orbit_map: puzzle_def.piece_orbit_map,
             piece_index_map,
             solved_state,
+            allowed_moves,
+            next_dfa_states,
         }
     }
 }
 
 pub struct PuzzleStates<'a, T, U, B: Backend> {
     num_states: usize,
-    state: Tensor<B, 2, Int>,
+    states: Tensor<B, 2, Int>,
     loaded_puzzle: &'a LoadedPuzzleDefinition<T, U, B>,
 }
 
@@ -93,7 +114,7 @@ pub struct PuzzleState<'a, T, U, B: Backend>(PuzzleStates<'a, T, U, B>);
 
 impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T, U, B> {
     pub fn new(num_states: usize, loaded_puzzle: &'a LoadedPuzzleDefinition<T, U, B>) -> Self {
-        let state = loaded_puzzle
+        let states = loaded_puzzle
             .solved_state
             .clone()
             .unsqueeze::<2>()
@@ -101,7 +122,7 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
 
         Self {
             num_states,
-            state,
+            states,
             loaded_puzzle,
         }
     }
@@ -120,7 +141,7 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
 
     #[inline(always)]
     fn shape_state(&self, num_moves: Option<usize>) -> Tensor<B, 4, Int> {
-        let shaped_state = self.state.clone().unsqueeze_dims::<4>(&[1, 3]);
+        let shaped_state = self.states.clone().unsqueeze_dims::<4>(&[1, 3]);
 
         if let Some(num_moves) = num_moves {
             shaped_state.expand([-1, num_moves as i32, -1, -1])
@@ -149,16 +170,16 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
         let move_index = self
             .loaded_puzzle
             .move_map
-            .get(move_key)
+            .get_index_of(move_key)
             .ok_or_else(|| MoveNotFound(move_key.clone()))?;
-        let move_index = Tensor::from_data([*move_index], &self.loaded_puzzle.device);
+        let move_index = Tensor::from_data([move_index], &self.loaded_puzzle.device);
         let move_ = self.shape_moves(self.select_moves(move_index));
 
         let new_state = self.apply_moves_tensor(move_, None);
 
         Ok(Self {
             num_states: self.num_states,
-            state: new_state,
+            states: new_state,
             loaded_puzzle: self.loaded_puzzle,
         })
     }
@@ -169,9 +190,8 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
             .map(|move_| {
                 self.loaded_puzzle
                     .move_map
-                    .get(move_)
+                    .get_index_of(*move_)
                     .ok_or_else(|| MoveNotFound((*move_).clone()))
-                    .copied()
             })
             .collect::<Result<Vec<_>, U>>()?;
         let move_indices = Tensor::from_data(move_indices.as_slice(), &self.loaded_puzzle.device);
@@ -181,7 +201,7 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
 
         Ok(Self {
             num_states: move_keys.len() * self.num_states,
-            state: new_state,
+            states: new_state,
             loaded_puzzle: self.loaded_puzzle,
         })
     }
@@ -193,18 +213,18 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
 
         Ok(Self {
             num_states: self.loaded_puzzle.num_moves * self.num_states,
-            state: new_state,
+            states: new_state,
             loaded_puzzle: self.loaded_puzzle,
         })
     }
 
     pub fn raw_states(&self) -> Tensor<B, 2, Int> {
-        self.state.clone()
+        self.states.clone()
     }
 
     pub fn states(&self) -> Result<Vec<Vec<T>>, U> {
         let raw_data = self
-            .state
+            .states
             .clone()
             .select(1, self.loaded_puzzle.piece_index_map.clone())
             .to_data()

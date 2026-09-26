@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 burn = { version = "0.21.0", features = ["wgpu"] }
-indexmap = "2.14.2"
+indexmap = { version = "2.14.2", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.20"
