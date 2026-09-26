@@ -1,18 +1,17 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use strum::Display;
 
 use crate::core::{Move, PuzzleDefinition};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash)]
 enum Axis {
     X,
     Y,
     Z,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vec3d {
     y: i32,
     z: i32,
@@ -79,13 +78,13 @@ impl Vec3d {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub struct Cubie {
     position: Vec3d,
     orientation: Vec3d,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MoveRotations {
     Clockwise,
     Half,
@@ -93,11 +92,17 @@ pub enum MoveRotations {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MoveId {
     axis: Axis,
     layer: i32,
     rotation: MoveRotations,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DfaState {
+    current_axis: Option<Axis>,
+    turned_layers: Vec<i32>,
 }
 
 impl Cubie {
@@ -125,7 +130,24 @@ impl Cubie {
     }
 }
 
-pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId> {
+fn dfa_eval(dfa_state: &DfaState, move_id: &MoveId) -> Option<DfaState> {
+    if dfa_state.current_axis == Some(move_id.axis) {
+        if dfa_state.turned_layers.contains(&move_id.layer) || move_id.layer < *dfa_state.turned_layers.iter().max().unwrap_or(&-1) {
+            None
+        } else {
+            let mut new_dfa_state = dfa_state.clone();
+            new_dfa_state.turned_layers.push(move_id.layer);
+            Some(new_dfa_state)
+        }
+    } else {
+        Some(DfaState {
+            current_axis: Some(move_id.axis),
+            turned_layers: vec![move_id.layer],
+        })
+    }
+}
+
+pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId, DfaState> {
     let half_size = (size / 2) as i32;
     let include_zero = size % 2 != 0;
     let dim_range = (-half_size..=half_size).filter(|n| include_zero || *n != 0);
@@ -145,7 +167,7 @@ pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId> {
         }
     }
 
-    let mut moves: HashMap<MoveId, Move<Cubie>> = HashMap::new();
+    let mut moves: HashMap<MoveId, Box<Move<Cubie>>> = HashMap::new();
 
     for dimension in [Axis::X, Axis::Y, Axis::Z] {
         for dim_index in dim_range.clone() {
@@ -170,5 +192,6 @@ pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId> {
     PuzzleDefinition {
         moves,
         solved_state,
+        dfa_eval: Box::new(dfa_eval),
     }
 }
