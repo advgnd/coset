@@ -1,7 +1,8 @@
 use std::{fmt::Debug, hash::Hash};
 
 use burn::{
-    Tensor, tensor::{DataError, Int, TensorData, backend::Backend},
+    Tensor,
+    tensor::{DataError, Int, TensorData, backend::Backend},
 };
 use indexmap::IndexSet;
 
@@ -230,22 +231,25 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleStates<'a, T,
             .to_data()
             .to_vec()
             .map_err(SimError::DataError)?;
-        
+
         let raw_data = raw_data.chunks(self.loaded_puzzle.num_pieces);
 
         Ok(raw_data
-            .map(|state|
-                state.into_iter()
-            .enumerate()
-            .map(|(piece_id, piece_state)| {
-                decompile_state(
-                    *piece_state,
-                    &self.loaded_puzzle.orbits[self.loaded_puzzle.piece_orbit_map[piece_id] as usize],
-                )
-                .expect("illegal state cannot be stored in PuzzleState(s)")
+            .map(|state| {
+                state
+                    .into_iter()
+                    .enumerate()
+                    .map(|(piece_id, piece_state)| {
+                        decompile_state(
+                            *piece_state,
+                            &self.loaded_puzzle.orbits
+                                [self.loaded_puzzle.piece_orbit_map[piece_id] as usize],
+                        )
+                        .expect("illegal state cannot be stored in PuzzleState(s)")
+                    })
+                    .collect()
             })
-            .collect()
-            ).collect())
+            .collect())
     }
 }
 
@@ -271,6 +275,8 @@ impl<'a, T: Debug + Clone, U: Clone + Eq + Hash, B: Backend> PuzzleState<'a, T, 
     }
 
     pub fn state(&self) -> Result<Vec<T>, U> {
-        self.0.states().map(|mut states| states.pop().unwrap_or_default())
+        self.0
+            .states()
+            .map(|mut states| states.pop().unwrap_or_default())
     }
 }

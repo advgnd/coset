@@ -91,7 +91,6 @@ pub enum MoveRotations {
     CounterClockwise,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MoveId {
     axis: Axis,
@@ -109,7 +108,7 @@ impl Cubie {
     fn new(x: i32, y: i32, z: i32) -> Self {
         Self {
             position: Vec3d { x, y, z },
-            orientation: Vec3d {x: 0, y: 0, z: 1},
+            orientation: Vec3d { x: 0, y: 0, z: 1 },
         }
     }
 
@@ -132,7 +131,9 @@ impl Cubie {
 
 fn dfa_eval(dfa_state: &DfaState, move_id: &MoveId) -> Option<DfaState> {
     if dfa_state.current_axis == Some(move_id.axis) {
-        if dfa_state.turned_layers.contains(&move_id.layer) || move_id.layer < *dfa_state.turned_layers.iter().max().unwrap_or(&-1) {
+        if dfa_state.turned_layers.contains(&move_id.layer)
+            || move_id.layer < *dfa_state.turned_layers.iter().max().unwrap_or(&-1)
+        {
             None
         } else {
             let mut new_dfa_state = dfa_state.clone();
@@ -171,12 +172,18 @@ pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId, DfaState> {
 
     for dimension in [Axis::X, Axis::Y, Axis::Z] {
         for dim_index in dim_range.clone() {
-            for rotation in [MoveRotations::Clockwise, MoveRotations::Half, MoveRotations::CounterClockwise] {
+            for rotation in [
+                MoveRotations::Clockwise,
+                MoveRotations::Half,
+                MoveRotations::CounterClockwise,
+            ] {
                 let move_ = move |pos: &Cubie| -> Cubie {
                     if pos.position.coord(dimension) == dim_index {
                         match rotation {
                             MoveRotations::Clockwise => pos.rotate(dimension, true),
-                            MoveRotations::Half => pos.rotate(dimension, true).rotate(dimension, true),
+                            MoveRotations::Half => {
+                                pos.rotate(dimension, true).rotate(dimension, true)
+                            }
                             MoveRotations::CounterClockwise => pos.rotate(dimension, false),
                         }
                     } else {
@@ -184,7 +191,14 @@ pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId, DfaState> {
                     }
                 };
 
-                moves.insert(MoveId { axis: dimension, layer: dim_index, rotation }, Box::new(move_));
+                moves.insert(
+                    MoveId {
+                        axis: dimension,
+                        layer: dim_index,
+                        rotation,
+                    },
+                    Box::new(move_),
+                );
             }
         }
     }
