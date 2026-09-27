@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use strum::Display;
 
 use crate::core::{Move, PuzzleDefinition};
 
-#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum Axis {
     X,
     Y,
     Z,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Vec3d {
     y: i32,
     z: i32,
@@ -78,47 +79,63 @@ impl Vec3d {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Cubie {
     position: Vec3d,
     orientation: Vec3d,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MoveRotations {
     Clockwise,
     Half,
     CounterClockwise,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MoveId {
     axis: Axis,
     layer: i32,
     rotation: MoveRotations,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct DfaState {
     current_axis: Option<Axis>,
-    turned_layers: Vec<i32>,
+    max_layer: i32,
 }
 
 impl Cubie {
-    fn new(x: i32, y: i32, z: i32) -> Self {
-        Self {
-            position: Vec3d { x, y, z },
-            orientation: Vec3d { x: 0, y: 0, z: 1 },
+    fn new(x: i32, y: i32, z: i32, cube_size: usize) -> Option<Self> {
+        let half_size = (cube_size / 2) as i32;
+        let position = Vec3d { x, y, z };
+        let mut orientation = Vec3d { x: 0, y: 0, z: 0 };
+        let mut oriented = false;
+        let coord_ori_pairs = [
+            (&position.x, &mut orientation.x),
+            (&position.y, &mut orientation.y),
+            (&position.z, &mut orientation.z),
+        ];
+
+        for (coord, ori) in coord_ori_pairs.into_iter() {
+            if coord.abs() > half_size {
+                return None;
+            }
+
+            if !oriented && coord.abs() == half_size {
+                *ori = coord.signum();
+                oriented = true;
+            }
         }
-    }
 
-    fn outer_score(&self, size: usize) -> usize {
-        let half_size = (size / 2) as i32;
-
-        [self.position.x, self.position.y, self.position.z]
-            .iter()
-            .filter(|&x| *x == -half_size || *x == half_size as i32)
-            .count()
+        if !oriented {
+            None
+        } else {
+            Some(Self {
+                position,
+                orientation,
+            })
+        }
     }
 
     fn rotate(&self, axis: Axis, clockwise: bool) -> Self {
@@ -131,19 +148,17 @@ impl Cubie {
 
 fn dfa_eval(dfa_state: &DfaState, move_id: &MoveId) -> Option<DfaState> {
     if dfa_state.current_axis == Some(move_id.axis) {
-        if dfa_state.turned_layers.contains(&move_id.layer)
-            || move_id.layer < *dfa_state.turned_layers.iter().max().unwrap_or(&-1)
-        {
+        if dfa_state.max_layer >= move_id.layer {
             None
         } else {
             let mut new_dfa_state = dfa_state.clone();
-            new_dfa_state.turned_layers.push(move_id.layer);
+            new_dfa_state.max_layer = move_id.layer;
             Some(new_dfa_state)
         }
     } else {
         Some(DfaState {
             current_axis: Some(move_id.axis),
-            turned_layers: vec![move_id.layer],
+            max_layer: move_id.layer,
         })
     }
 }
@@ -158,10 +173,9 @@ pub fn rubik(size: usize) -> PuzzleDefinition<Cubie, MoveId, DfaState> {
     for z in dim_range.clone() {
         for y in dim_range.clone() {
             for x in dim_range.clone() {
-                let cubie = Cubie::new(x as i32, y as i32, z as i32);
-                let outer_score = cubie.outer_score(size);
+                let opt_cubie = Cubie::new(x as i32, y as i32, z as i32, size);
 
-                if outer_score > 0 {
+                if let Some(cubie) = opt_cubie {
                     solved_state.push(cubie);
                 }
             }
