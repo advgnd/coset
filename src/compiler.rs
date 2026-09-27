@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashSet, VecDeque},
     fmt::Debug,
     hash::Hash,
 };
@@ -47,7 +47,7 @@ pub fn compile_state<T: Clone + Eq>(
         .ok_or_else(|| CompilerError::InvalidPieceState(piece_state.clone()))
 }
 
-fn bfs<T: Clone + Hash + Eq>(initial_state: T, transform: impl Fn(&T) -> Vec<T>) -> Vec<T> {
+fn bfs<T: Clone + Hash + Eq>(initial_state: T, transform: impl Fn(&T) -> Vec<T>) -> IndexSet<T> {
     let mut visited = IndexSet::new();
     let mut queue = VecDeque::new();
 
@@ -64,7 +64,7 @@ fn bfs<T: Clone + Hash + Eq>(initial_state: T, transform: impl Fn(&T) -> Vec<T>)
         }
     }
 
-    visited.into_iter().collect()
+    visited
 }
 
 fn compile_move<T: Debug + Clone + Eq>(
@@ -97,36 +97,42 @@ fn find_orbits<T: Clone + Eq + Hash>(
     solved_state: &[T],
     moves: &Vec<&Move<T>>,
 ) -> (Vec<OrbitDefinition<T>>, Vec<i32>) {
-    let mut orbit_piece_map: HashMap<Vec<T>, Vec<i32>> = HashMap::new();
-
-    for piece_id in 0..solved_state.len() {
-        let visited = bfs(solved_state[piece_id].clone(), |state| {
-            moves.iter().map(|move_| move_(state)).collect()
-        });
-
-        orbit_piece_map
-            .entry(visited)
-            .or_default()
-            .push(piece_id as i32);
-    }
-
     let mut orbit_definitions = vec![];
+    let mut visited_states = HashSet::new();
     let mut piece_orbit_map = vec![0; solved_state.len()];
     let mut beginning_index = 0;
 
-    for (orbit_index, (states, pieces)) in orbit_piece_map.into_iter().enumerate() {
-        let end_index = beginning_index + pieces.len() as i32;
-
-        for &piece_id in pieces.iter() {
-            piece_orbit_map[piece_id as usize] = orbit_index as i32;
+    for piece_state in solved_state.iter() {
+        if visited_states.contains(piece_state) {
+            continue;
         }
 
+        let visited = bfs(piece_state.clone(), |state| {
+            moves.iter().map(|move_| move_(state)).collect()
+        });
+        let piece_ids: Vec<i32> = solved_state
+            .iter()
+            .enumerate()
+            .filter_map(|(id, state)| {
+                if visited.contains(state) {
+                    Some(id as i32)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let end_index = beginning_index + piece_ids.len();
+
+        for &piece_id in piece_ids.iter() {
+            piece_orbit_map[piece_id as usize] = orbit_definitions.len() as i32;
+        }
+
+        visited_states.extend(visited.clone().into_iter());
         orbit_definitions.push(OrbitDefinition {
             slice: beginning_index..end_index,
-            states: states,
-            pieces: pieces,
+            states: visited.into_iter().collect(),
+            pieces: piece_ids,
         });
-
         beginning_index = end_index;
     }
 
@@ -194,7 +200,7 @@ impl<
         let compiled_moves = puzzle
             .moves
             .iter()
-            .map(|(_, move_)| compile_move(move_, &orbits, &piece_orbit_map, &piece_index_map))
+            .map(|(_, move_)| compile_move(move_, &orbits, &piece_orbit_map, &index_piece_map))
             .collect::<Result<_, T>>()?;
 
         let compiled_solved_state = puzzle
@@ -203,6 +209,11 @@ impl<
             .enumerate()
             .map(|(index, state)| compile_state(&state, &orbits[piece_orbit_map[index] as usize]))
             .collect::<Result<Vec<CompiledPieceState>, T>>()?;
+
+        let reordered_compiled_solved_state = index_piece_map
+            .iter()
+            .map(|&index| compiled_solved_state[index as usize])
+            .collect();
 
         let (allowed_moves, next_dfa_states) =
             find_dfa_masks(&puzzle.dfa_eval, &puzzle.moves.keys().cloned().collect());
@@ -213,7 +224,7 @@ impl<
             orbits,
             piece_orbit_map,
             piece_index_map,
-            solved_state: compiled_solved_state,
+            solved_state: reordered_compiled_solved_state,
             allowed_moves,
             next_dfa_states,
         })

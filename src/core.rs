@@ -12,7 +12,7 @@ pub type DfaEvaluator<T, U> = dyn Fn(&T, &U) -> Option<T>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbitDefinition<T> {
-    pub slice: Range<i32>,
+    pub slice: Range<usize>,
     pub pieces: Vec<i32>,
     pub states: Vec<T>,
 }
