@@ -142,7 +142,7 @@ fn find_orbits<T: Clone + Eq + Hash>(
 fn find_dfa_masks<T: Clone + Default + Eq + Hash, U: Eq + Hash>(
     dfa_eval: &DfaEvaluator<T, U>,
     moves: &Vec<U>,
-) -> (Vec<Vec<i32>>, Vec<Vec<i32>>) {
+) -> (Vec<Vec<bool>>, Vec<Vec<i32>>) {
     let dfa_states = bfs(T::default(), |dfa_state| {
         moves
             .iter()
@@ -152,25 +152,28 @@ fn find_dfa_masks<T: Clone + Default + Eq + Hash, U: Eq + Hash>(
     .into_iter()
     .collect::<IndexSet<_>>();
 
-    let mut allowed_moves = vec![];
-    let mut next_dfa_states = vec![];
+    let mut dfa_validity_mask = vec![vec![false; moves.len()]];
+    let mut dfa_next_map = vec![vec![0; moves.len()]];
 
     for dfa_state in dfa_states.iter() {
         let mut mask = vec![];
         let mut next_states = vec![];
 
-        for (move_index, move_) in moves.iter().enumerate() {
+        for move_ in moves.iter() {
             if let Some(next_dfa_state) = dfa_eval(dfa_state, move_) {
-                mask.push(move_index as i32);
-                next_states.push(dfa_states.get_index_of(&next_dfa_state).unwrap() as i32);
+                mask.push(true);
+                next_states.push(dfa_states.get_index_of(&next_dfa_state).unwrap() as i32 + 1);
+            } else {
+                mask.push(false);
+                next_states.push(0);
             }
         }
 
-        allowed_moves.push(mask);
-        next_dfa_states.push(next_states);
+        dfa_validity_mask.push(mask);
+        dfa_next_map.push(next_states);
     }
 
-    (allowed_moves, next_dfa_states)
+    (dfa_validity_mask, dfa_next_map)
 }
 
 impl<
@@ -215,7 +218,7 @@ impl<
             .map(|&index| compiled_solved_state[index as usize])
             .collect();
 
-        let (allowed_moves, next_dfa_states) =
+        let (dfa_validity_mask, dfa_next_map) =
             find_dfa_masks(&puzzle.dfa_eval, &puzzle.moves.keys().cloned().collect());
 
         Ok(CompiledPuzzleDefinition {
@@ -225,8 +228,8 @@ impl<
             piece_orbit_map,
             piece_index_map,
             solved_state: reordered_compiled_solved_state,
-            allowed_moves,
-            next_dfa_states,
+            dfa_validity_mask,
+            dfa_next_map,
         })
     }
 }
